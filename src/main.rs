@@ -305,27 +305,6 @@ impl<const N: usize> App for Smarticles<N> {
             ui.heading("Settings");
             ui.separator();
             ui.horizontal(|ui| {
-                /*if self.dots.iter().all(Vec::is_empty) {
-                    if ui.button("Spawn").clicked() {
-                        self.spawn();
-                    }
-                } else if self.play {
-                    if ui.button("Respawn").clicked() {
-                        self.spawn();
-                        self.stop();
-                    }
-                    if ui.button("Pause").clicked() {
-                        self.stop();
-                    }
-                } else {
-                    if ui.button("Respawn").clicked() {
-                        self.spawn();
-                        self.stop();
-                    }
-                    if ui.button("Play").clicked() {
-                        self.play();
-                    }
-                }*/
                 if ui.button("Respawn").clicked() {
                     self.spawn();
                 }
@@ -340,7 +319,6 @@ impl<const N: usize> App for Smarticles<N> {
                 }
 
                 if ui.button("Randomize").clicked() {
-                    //self.seed = format!("{}", rand::random::<u64>());
                     let w1 = rand::random::<usize>() % self.words.len();
                     let w2 = rand::random::<usize>() % self.words.len();
                     self.seed = format!("{}_{}", self.words[w1], self.words[w2]);
@@ -373,6 +351,7 @@ impl<const N: usize> App for Smarticles<N> {
                     .changed()
                 {
                     self.seed = self.export();
+                    self.spawn();
                 }
             });
             ui.horizontal(|ui| {
@@ -382,6 +361,7 @@ impl<const N: usize> App for Smarticles<N> {
                     .changed()
                 {
                     self.seed = self.export();
+                    self.spawn();
                 }
             });
 
