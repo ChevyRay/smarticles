@@ -1,19 +1,13 @@
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use eframe::epaint::Color32;
 use eframe::{App, Frame, NativeOptions};
-use egui::emath::RectTransform;
-use egui::Key::P;
-use egui::{
-    Button, CentralPanel, Context, Label, Pos2, Rect, Rgba, RichText, Rounding, Sense, SidePanel,
-    Slider, Stroke, Vec2,
-};
+use egui::{CentralPanel, Context, Rgba, Sense, SidePanel, Slider, Vec2};
 use rand::distributions::OpenClosed01;
-use rand::rngs::{SmallRng, ThreadRng};
+use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
-use std::io::{Read, Write};
 use std::time::{Duration, Instant};
 
 const INIT_SIZE: f32 = 800.0;
@@ -434,45 +428,11 @@ impl<const N: usize> App for Smarticles<N> {
                         }
                     });
                 });
-
-                /*for j in 0..N {
-                    ui.horizontal(|ui| {
-                        ui.label("Power (");
-                        ui.colored_label(self.params[j].color, &self.params[j].name);
-                        ui.label(")");
-                        if ui
-                            .add(Slider::new(
-                                &mut self.params[i].power[j],
-                                MIN_POWER..=MAX_POWER,
-                            ))
-                            .changed()
-                        {
-                            self.seed = self.export();
-                        }
-                    });
-                }
-
-                for j in 0..N {
-                    ui.horizontal(|ui| {
-                        ui.label("Radius (");
-                        ui.colored_label(self.params[j].color, &self.params[j].name);
-                        ui.label(")");
-                        if ui
-                            .add(Slider::new(
-                                &mut self.params[i].radius[j],
-                                MIN_RADIUS..=MAX_RADIUS,
-                            ))
-                            .changed()
-                        {
-                            self.seed = self.export();
-                        }
-                    });
-                }*/
             }
         });
 
         CentralPanel::default().show(&ctx, |ui| {
-            let (mut resp, paint) =
+            let (resp, paint) =
                 ui.allocate_painter(ui.available_size_before_wrap(), Sense::hover());
 
             let min = resp.rect.min
