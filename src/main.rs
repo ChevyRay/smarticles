@@ -1,7 +1,7 @@
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use eframe::epaint::Color32;
 use eframe::{App, Frame, NativeOptions};
-use egui::{CentralPanel, Context, Rgba, Sense, SidePanel, Slider, Vec2};
+use egui::{CentralPanel, Context, Rgba, Sense, SidePanel, Slider, Vec2, Rect, Stroke, Rounding};
 use rand::distributions::OpenClosed01;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -49,6 +49,7 @@ struct Smarticles<const N: usize> {
     prev_time: Instant,
     seed: String,
     words: Vec<String>,
+    backvel: f32,
 }
 
 struct Params<const N: usize> {
@@ -103,6 +104,7 @@ impl<const N: usize> Smarticles<N> {
             prev_time: Instant::now(),
             seed: String::new(),
             words,
+            backvel: 3.0,
         }
     }
 
@@ -196,6 +198,7 @@ impl<const N: usize> Smarticles<N> {
                     self.params[i].radius[j],
                     self.world_w,
                     self.world_h,
+                    self.backvel,
                 );
             }
         });
@@ -206,6 +209,7 @@ impl<const N: usize> Smarticles<N> {
         let mut bytes: Vec<u8> = Vec::new();
         bytes.write_u16::<LE>(self.world_w as u16).unwrap();
         bytes.write_u16::<LE>(self.world_h as u16).unwrap();
+        bytes.write_f32::<LE>(self.backvel).unwrap();
         for p in &self.params {
             bytes.write_u8((p.color.r() * 255.0) as u8).unwrap();
             bytes.write_u8((p.color.g() * 255.0) as u8).unwrap();
@@ -224,6 +228,7 @@ impl<const N: usize> Smarticles<N> {
     fn import(&mut self, mut bytes: &[u8]) {
         self.world_w = bytes.read_u16::<LE>().unwrap_or(1000) as f32;
         self.world_h = bytes.read_u16::<LE>().unwrap_or(1000) as f32;
+        self.backvel = bytes.read_f32::<LE>().unwrap_or(3.0) as f32;
         for p in &mut self.params {
             let r = (bytes.read_u8().unwrap_or((p.color.r() * 255.0) as u8) as f32) / 255.0;
             let g = (bytes.read_u8().unwrap_or((p.color.g() * 255.0) as u8) as f32) / 255.0;
@@ -247,6 +252,7 @@ fn interaction(
     radius: f32,
     world_w: f32,
     world_h: f32,
+    backvel: f32,
 ) {
     let g = g / -100.0;
     group1.par_iter_mut().for_each(|p1| {
@@ -262,11 +268,17 @@ fn interaction(
         p1.vel = (p1.vel + f * g) * 0.5;
         p1.pos += p1.vel;
 
-        if (p1.pos.x < 10.0 && p1.vel.x < 0.0) || (p1.pos.x > world_w - 10.0 && p1.vel.x > 0.0) {
-            p1.vel.x *= -1.0;
+        if p1.pos.x < 0.0 {
+            p1.vel.x += backvel;
         }
-        if (p1.pos.y < 10.0 && p1.vel.y < 0.0) || (p1.pos.y > world_h - 10.0 && p1.vel.y > 0.0) {
-            p1.vel.y *= -1.0;
+        if p1.pos.y < 0.0 {
+            p1.vel.y += backvel;
+        }
+        if p1.pos.x > world_w {
+            p1.vel.x -= backvel;
+        }
+        if p1.pos.y > world_h {
+            p1.vel.y -= backvel;
         }
 
         // alternative: wrap
@@ -358,6 +370,15 @@ impl<const N: usize> App for Smarticles<N> {
                     self.spawn();
                 }
             });
+            ui.horizontal(|ui| {
+                ui.label("Back velocity:");
+                if ui
+                    .add(Slider::new(&mut self.backvel, 0.1..=10.0))
+                    .changed()
+                {
+                    self.seed = self.export();
+                }
+            });
 
             for i in 0..N {
                 ui.add_space(10.0);
@@ -440,6 +461,7 @@ impl<const N: usize> App for Smarticles<N> {
                     (resp.rect.width() - self.world_w) / 2.0,
                     (resp.rect.height() - self.world_h) / 2.0,
                 );
+            paint.rect(Rect { min, max: min + Vec2::new(self.world_w, self.world_h) }, Rounding::none(), Color32::from_rgba_unmultiplied(0, 0, 0, 30), Stroke::default());
 
             for i in 0..N {
                 let p = &self.params[i];
