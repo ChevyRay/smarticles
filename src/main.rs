@@ -1,14 +1,14 @@
+use base64::Engine;
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
-use eframe::epaint::Color32;
-use eframe::{App, Frame, NativeOptions};
+use eframe::{epaint::Color32, App, Frame, NativeOptions};
 use egui::{CentralPanel, Context, Rgba, Sense, SidePanel, Slider, Vec2};
-use rand::distributions::OpenClosed01;
-use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
+use rand::{distributions::OpenClosed01, rngs::SmallRng, Rng, SeedableRng};
 use rayon::prelude::*;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::time::{Duration, Instant};
+use std::{
+    collections::hash_map::DefaultHasher,
+    hash::{Hash, Hasher},
+    time::{Duration, Instant},
+};
 
 const INIT_SIZE: f32 = 800.0;
 const MIN_COUNT: usize = 0;
@@ -18,13 +18,14 @@ const MAX_POWER: f32 = 100.0;
 const MIN_RADIUS: f32 = 0.0;
 const MAX_RADIUS: f32 = 500.0;
 
-fn main() {
-    let mut options = NativeOptions::default();
-    options.initial_window_size = Some(Vec2::new(1600.0, 900.0));
-    //options.fullscreen = true;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     eframe::run_native(
         "Smarticles",
-        options,
+        NativeOptions {
+            initial_window_size: Some(Vec2::new(1600.0, 900.0)),
+            //fullscreen: true,
+            ..Default::default()
+        },
         Box::new(|_cc| {
             Box::new(Smarticles::new(
                 INIT_SIZE,
@@ -37,7 +38,9 @@ fn main() {
                 ],
             ))
         }),
-    );
+    )?;
+
+    Ok(())
 }
 
 struct Smarticles<const N: usize> {
@@ -93,7 +96,7 @@ impl<const N: usize> Smarticles<N> {
             params: colors.map(|(name, color)| Params {
                 name: name.to_string(),
                 heading: "Type ".to_string() + &name.to_string(),
-                color: color.into(),
+                color,
                 count: 0,
                 power: [0.0; N],
                 radius: [MIN_RADIUS; N],
@@ -156,10 +159,12 @@ impl<const N: usize> Smarticles<N> {
             SmallRng::from_entropy()
         } else {
             if self.seed.starts_with('@') {
-                if let Ok(bytes) = base64::decode(&self.seed[1..]) {
-                    self.import(&bytes);
-                    return;
-                }
+                self.import(
+                    base64::prelude::BASE64_STANDARD
+                        .encode(&self.seed[1..])
+                        .as_bytes(),
+                );
+                return;
             }
             let mut hasher = DefaultHasher::new();
             self.seed.hash(&mut hasher);
@@ -218,7 +223,7 @@ impl<const N: usize> Smarticles<N> {
                 bytes.write_u16::<LE>(r as u16).unwrap();
             }
         }
-        format!("@{}", base64::encode(bytes))
+        format!("@{}", base64::prelude::BASE64_STANDARD.encode(bytes))
     }
 
     fn import(&mut self, mut bytes: &[u8]) {
@@ -295,7 +300,7 @@ impl<const N: usize> App for Smarticles<N> {
             ctx.request_repaint();
         }
 
-        SidePanel::left("settings").show(&ctx, |ui| {
+        SidePanel::left("settings").show(ctx, |ui| {
             ui.heading("Settings");
             ui.separator();
             ui.horizontal(|ui| {
@@ -306,10 +311,8 @@ impl<const N: usize> App for Smarticles<N> {
                     if ui.button("Pause").clicked() {
                         self.stop();
                     }
-                } else {
-                    if ui.button("Play").clicked() {
-                        self.play();
-                    }
+                } else if ui.button("Play").clicked() {
+                    self.play();
                 }
 
                 if ui.button("Randomize").clicked() {
@@ -431,7 +434,7 @@ impl<const N: usize> App for Smarticles<N> {
             }
         });
 
-        CentralPanel::default().show(&ctx, |ui| {
+        CentralPanel::default().show(ctx, |ui| {
             let (resp, paint) =
                 ui.allocate_painter(ui.available_size_before_wrap(), Sense::hover());
 
