@@ -1,7 +1,7 @@
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use eframe::epaint::Color32;
 use eframe::{App, Frame, NativeOptions};
-use egui::{CentralPanel, Context, Rgba, Sense, SidePanel, Slider, Vec2};
+use egui::{CentralPanel, Context, Rgba, ScrollArea, Sense, SidePanel, Slider, Vec2};
 use rand::distributions::OpenClosed01;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -10,30 +10,53 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 
-const INIT_SIZE: f32 = 800.0;
-const MIN_COUNT: usize = 0;
-const MAX_COUNT: usize = 1000;
-const MIN_POWER: f32 = -100.0;
-const MAX_POWER: f32 = 100.0;
+const PARTICLE_SIZE: f32 = 1.0;
+const INIT_WIDTH: f32 = 800.0;
+const INIT_HEIGHT: f32 = 600.0;
+const MIN_COUNT: usize = 1000;
+const MAX_COUNT: usize = 2000;
+const MAX_POWER: f32 = 80.0;
+const MIN_POWER: f32 = -MAX_POWER;
 const MIN_RADIUS: f32 = 0.0;
-const MAX_RADIUS: f32 = 500.0;
+const MAX_RADIUS: f32 = 100.0;
 
 fn main() {
-    let mut options = NativeOptions::default();
+    let mut options = NativeOptions {
+        initial_window_size: Some(Vec2::new(1600.0, 900.0)),
+        fullscreen: true,
+        ..Default::default()
+    };
     options.initial_window_size = Some(Vec2::new(1600.0, 900.0));
-    //options.fullscreen = true;
+    options.fullscreen = true;
     eframe::run_native(
         "Smarticles",
         options,
         Box::new(|_cc| {
             Box::new(Smarticles::new(
-                INIT_SIZE,
-                INIT_SIZE,
+                INIT_WIDTH,
+                INIT_HEIGHT,
                 [
-                    ("α", Rgba::from_rgb(1.0, 0.0, 0.0)),
-                    ("β", Rgba::from_rgb(0.0, 1.0, 0.0)),
-                    ("γ", Rgba::from_rgb(1.0, 1.0, 1.0)),
-                    ("δ", Rgba::from_rgb(0.0, 0.0, 1.0)),
+                    // rgb(211,54,130)
+                    (
+                        "α",
+                        Rgba::from_rgb(211.0 / 255.0, 54.0 / 255.0, 130.0 / 255.0),
+                    ),
+                    // rgb(87,243,71)
+                    (
+                        "β",
+                        Rgba::from_rgb(87.0 / 255.0, 243.0 / 255.0, 71.0 / 255.0),
+                    ),
+                    // rgb(0,190,197)
+                    ("γ", Rgba::from_rgb(0.0, 190.0 / 255.0, 197.0 / 255.0)),
+                    // rgb(253,246,227)
+                    (
+                        "δ",
+                        Rgba::from_rgb(253.0 / 255.0, 246.0 / 255.0, 227.0 / 255.0),
+                    ),
+                    // rgb(181,137,0)
+                    ("ε", Rgba::from_rgb(181.0 / 255.0, 137.0 / 255.0, 0.0)),
+                    // rgb(7,54,66)
+                    ("ζ", Rgba::from_rgb(7.0 / 255.0, 54.0 / 255.0, 66.0 / 255.0)),
                 ],
             ))
         }),
@@ -60,7 +83,7 @@ struct Params<const N: usize> {
     radius: [f32; N],
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 struct Dot {
     pos: Vec2,
     vel: Vec2,
@@ -93,7 +116,7 @@ impl<const N: usize> Smarticles<N> {
             params: colors.map(|(name, color)| Params {
                 name: name.to_string(),
                 heading: "Type ".to_string() + &name.to_string(),
-                color: color.into(),
+                color,
                 count: 0,
                 power: [0.0; N],
                 radius: [MIN_RADIUS; N],
@@ -115,8 +138,8 @@ impl<const N: usize> Smarticles<N> {
     }
 
     fn restart(&mut self) {
-        self.world_w = INIT_SIZE;
-        self.world_h = INIT_SIZE;
+        self.world_w = INIT_WIDTH;
+        self.world_h = INIT_HEIGHT;
         for p in &mut self.params {
             p.count = 0;
             p.radius.iter_mut().for_each(|r| *r = 0.0);
@@ -186,20 +209,22 @@ impl<const N: usize> Smarticles<N> {
     }
 
     fn simulate(&mut self) {
-        let mut dots: [Vec<Dot>; N] = std::array::from_fn(|i| self.dots[i].clone());
-        dots.par_iter_mut().enumerate().for_each(|(i, dots_i)| {
-            for j in 0..N {
-                interaction(
-                    dots_i,
-                    &self.dots[j],
-                    self.params[i].power[j],
-                    self.params[i].radius[j],
-                    self.world_w,
-                    self.world_h,
-                );
-            }
-        });
-        self.dots = dots;
+        let dots_clone: [Vec<Dot>; N] = std::array::from_fn(|i| self.dots[i].clone());
+        self.dots
+            .par_iter_mut()
+            .enumerate()
+            .for_each(|(i, dots_i)| {
+                for j in 0..N {
+                    interaction(
+                        dots_i,
+                        &dots_clone[j],
+                        self.params[i].power[j],
+                        self.params[i].radius[j],
+                        self.world_w,
+                        self.world_h,
+                    );
+                }
+            });
     }
 
     fn export(&self) -> String {
@@ -295,7 +320,7 @@ impl<const N: usize> App for Smarticles<N> {
             ctx.request_repaint();
         }
 
-        SidePanel::left("settings").show(&ctx, |ui| {
+        SidePanel::left("settings").show(ctx, |ui| {
             ui.heading("Settings");
             ui.separator();
             ui.horizontal(|ui| {
@@ -306,10 +331,8 @@ impl<const N: usize> App for Smarticles<N> {
                     if ui.button("Pause").clicked() {
                         self.stop();
                     }
-                } else {
-                    if ui.button("Play").clicked() {
-                        self.play();
-                    }
+                } else if ui.button("Play").clicked() {
+                    self.play();
                 }
 
                 if ui.button("Randomize").clicked() {
@@ -359,79 +382,81 @@ impl<const N: usize> App for Smarticles<N> {
                 }
             });
 
-            for i in 0..N {
-                ui.add_space(10.0);
-                ui.colored_label(self.params[i].color, &self.params[i].heading);
-                ui.separator();
+            ScrollArea::vertical().show(ui, |ui| {
+                for i in 0..N {
+                    ui.add_space(10.0);
+                    ui.colored_label(self.params[i].color, &self.params[i].heading);
+                    ui.separator();
 
-                ui.horizontal(|ui| {
-                    ui.label("Color:");
-                    let mut rgb = [
-                        self.params[i].color.r(),
-                        self.params[i].color.g(),
-                        self.params[i].color.b(),
-                    ];
-                    if ui.color_edit_button_rgb(&mut rgb).changed() {
-                        self.params[i].color = Rgba::from_rgb(rgb[0], rgb[1], rgb[2]);
-                        self.seed = self.export();
-                    }
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Count:");
-                    if ui
-                        .add(Slider::new(
-                            &mut self.params[i].count,
-                            MIN_COUNT..=MAX_COUNT,
-                        ))
-                        .changed()
-                    {
-                        self.seed = self.export();
-                    }
-                });
-
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        for j in 0..N {
-                            ui.horizontal(|ui| {
-                                ui.label("Power (");
-                                ui.colored_label(self.params[j].color, &self.params[j].name);
-                                ui.label(")");
-                                if ui
-                                    .add(Slider::new(
-                                        &mut self.params[i].power[j],
-                                        MIN_POWER..=MAX_POWER,
-                                    ))
-                                    .changed()
-                                {
-                                    self.seed = self.export();
-                                }
-                            });
+                    ui.horizontal(|ui| {
+                        ui.label("Color:");
+                        let mut rgb = [
+                            self.params[i].color.r(),
+                            self.params[i].color.g(),
+                            self.params[i].color.b(),
+                        ];
+                        if ui.color_edit_button_rgb(&mut rgb).changed() {
+                            self.params[i].color = Rgba::from_rgb(rgb[0], rgb[1], rgb[2]);
+                            self.seed = self.export();
                         }
                     });
-                    ui.vertical(|ui| {
-                        for j in 0..N {
-                            ui.horizontal(|ui| {
-                                ui.label("Radius (");
-                                ui.colored_label(self.params[j].color, &self.params[j].name);
-                                ui.label(")");
-                                if ui
-                                    .add(Slider::new(
-                                        &mut self.params[i].radius[j],
-                                        MIN_RADIUS..=MAX_RADIUS,
-                                    ))
-                                    .changed()
-                                {
-                                    self.seed = self.export();
-                                }
-                            });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Count:");
+                        if ui
+                            .add(Slider::new(
+                                &mut self.params[i].count,
+                                MIN_COUNT..=MAX_COUNT,
+                            ))
+                            .changed()
+                        {
+                            self.seed = self.export();
                         }
                     });
-                });
-            }
+
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            for j in 0..N {
+                                ui.horizontal(|ui| {
+                                    ui.label("Power (");
+                                    ui.colored_label(self.params[j].color, &self.params[j].name);
+                                    ui.label(")");
+                                    if ui
+                                        .add(Slider::new(
+                                            &mut self.params[i].power[j],
+                                            MIN_POWER..=MAX_POWER,
+                                        ))
+                                        .changed()
+                                    {
+                                        self.seed = self.export();
+                                    }
+                                });
+                            }
+                        });
+                        ui.vertical(|ui| {
+                            for j in 0..N {
+                                ui.horizontal(|ui| {
+                                    ui.label("Radius (");
+                                    ui.colored_label(self.params[j].color, &self.params[j].name);
+                                    ui.label(")");
+                                    if ui
+                                        .add(Slider::new(
+                                            &mut self.params[i].radius[j],
+                                            MIN_RADIUS..=MAX_RADIUS,
+                                        ))
+                                        .changed()
+                                    {
+                                        self.seed = self.export();
+                                    }
+                                });
+                            }
+                        });
+                    });
+                }
+            });
         });
 
-        CentralPanel::default().show(&ctx, |ui| {
+        CentralPanel::default().show(ctx, |ui| {
             let (resp, paint) =
                 ui.allocate_painter(ui.available_size_before_wrap(), Sense::hover());
 
@@ -445,7 +470,7 @@ impl<const N: usize> App for Smarticles<N> {
                 let p = &self.params[i];
                 let col: Color32 = p.color.into();
                 for dot in &self.dots[i] {
-                    paint.circle_filled(min + dot.pos, 2.0, col);
+                    paint.circle_filled(min + dot.pos, PARTICLE_SIZE / 2.0, col);
                 }
             }
         });
