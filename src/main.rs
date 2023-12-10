@@ -10,53 +10,50 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 
-const PARTICLE_SIZE: f32 = 1.0;
-const INIT_WIDTH: f32 = 800.0;
+const PARTICLE_SIZE: f32 = 1.5;
+
+const INIT_WIDTH: f32 = INIT_HEIGHT * 1.618;
 const INIT_HEIGHT: f32 = 600.0;
-const MIN_COUNT: usize = 1000;
-const MAX_COUNT: usize = 2000;
-const MAX_POWER: f32 = 80.0;
+const MIN_WORLD_W: f32 = 100.0;
+const MAX_WORLD_W: f32 = 1000.0;
+const MIN_WORLD_H: f32 = 100.0;
+const MAX_WORLD_H: f32 = 1000.0;
+
+const MIN_COUNT: usize = 0;
+const MAX_COUNT: usize = 800;
+
+const MAX_POWER: f32 = 50.0;
 const MIN_POWER: f32 = -MAX_POWER;
+
 const MIN_RADIUS: f32 = 0.0;
-const MAX_RADIUS: f32 = 100.0;
+const MAX_RADIUS: f32 = 200.0;
+
+const INIT_SPEED: f32 = 60.0;
+const MIN_SPEED: f32 = 10.0;
+const MAX_SPEED: f32 = 60.0;
 
 fn main() {
-    let mut options = NativeOptions {
-        initial_window_size: Some(Vec2::new(1600.0, 900.0)),
+    let options = NativeOptions {
+        // initial_window_size: Some(Vec2::new(1600.0, 900.0)),
         fullscreen: true,
         ..Default::default()
     };
-    options.initial_window_size = Some(Vec2::new(1600.0, 900.0));
-    options.fullscreen = true;
     eframe::run_native(
         "Smarticles",
         options,
-        Box::new(|_cc| {
+        Box::new(|_| {
             Box::new(Smarticles::new(
                 INIT_WIDTH,
                 INIT_HEIGHT,
                 [
-                    // rgb(211,54,130)
-                    (
-                        "α",
-                        Rgba::from_rgb(211.0 / 255.0, 54.0 / 255.0, 130.0 / 255.0),
-                    ),
-                    // rgb(87,243,71)
-                    (
-                        "β",
-                        Rgba::from_rgb(87.0 / 255.0, 243.0 / 255.0, 71.0 / 255.0),
-                    ),
-                    // rgb(0,190,197)
-                    ("γ", Rgba::from_rgb(0.0, 190.0 / 255.0, 197.0 / 255.0)),
-                    // rgb(253,246,227)
-                    (
-                        "δ",
-                        Rgba::from_rgb(253.0 / 255.0, 246.0 / 255.0, 227.0 / 255.0),
-                    ),
-                    // rgb(181,137,0)
-                    ("ε", Rgba::from_rgb(181.0 / 255.0, 137.0 / 255.0, 0.0)),
-                    // rgb(7,54,66)
-                    ("ζ", Rgba::from_rgb(7.0 / 255.0, 54.0 / 255.0, 66.0 / 255.0)),
+                    ("α", Rgba::from_srgba_unmultiplied(255, 0, 0, 255)),
+                    ("β", Rgba::from_srgba_unmultiplied(255, 140, 0, 255)),
+                    ("γ", Rgba::from_srgba_unmultiplied(225, 255, 0, 255)),
+                    ("δ", Rgba::from_srgba_unmultiplied(68, 255, 0, 255)),
+                    ("ε", Rgba::from_srgba_unmultiplied(0, 247, 255, 255)),
+                    ("ζ", Rgba::from_srgba_unmultiplied(40, 60, 255, 255)),
+                    ("η", Rgba::from_srgba_unmultiplied(166, 0, 255, 255)),
+                    ("θ", Rgba::from_srgba_unmultiplied(247, 0, 243, 255)),
                 ],
             ))
         }),
@@ -70,6 +67,7 @@ struct Smarticles<const N: usize> {
     dots: [Vec<Dot>; N],
     play: bool,
     prev_time: Instant,
+    speed: f32,
     seed: String,
     words: Vec<String>,
 }
@@ -124,6 +122,7 @@ impl<const N: usize> Smarticles<N> {
             dots: std::array::from_fn(|_| Vec::new()),
             play: false,
             prev_time: Instant::now(),
+            speed: INIT_SPEED,
             seed: String::new(),
             words,
         }
@@ -288,23 +287,23 @@ fn interaction(
         p1.pos += p1.vel;
 
         if (p1.pos.x < 10.0 && p1.vel.x < 0.0) || (p1.pos.x > world_w - 10.0 && p1.vel.x > 0.0) {
-            p1.vel.x *= -1.0;
+            p1.vel.x *= -8.0;
         }
         if (p1.pos.y < 10.0 && p1.vel.y < 0.0) || (p1.pos.y > world_h - 10.0 && p1.vel.y > 0.0) {
-            p1.vel.y *= -1.0;
+            p1.vel.y *= -8.0;
         }
 
         // alternative: wrap
-        /*if p1.pos.x < 0.0 {
-            p1.pos.x += world_w;
-        } else if p1.pos.x >= world_w {
-            p1.pos.x -= world_w;
-        }
-        if p1.pos.y < 0.0 {
-            p1.pos.y += world_h;
-        } else if p1.pos.y >= world_h {
-            p1.pos.y -= world_h;
-        }*/
+        // if p1.pos.x < 0.0 {
+        //     p1.pos.x += world_w;
+        // } else if p1.pos.x >= world_w {
+        //     p1.pos.x -= world_w;
+        // }
+        // if p1.pos.y < 0.0 {
+        //     p1.pos.y += world_h;
+        // } else if p1.pos.y >= world_h {
+        //     p1.pos.y -= world_h;
+        // }
     });
 }
 
@@ -313,7 +312,8 @@ impl<const N: usize> App for Smarticles<N> {
         if self.play {
             let time = Instant::now();
             let delta = time - self.prev_time;
-            if delta > Duration::from_secs_f32(1.0 / 60.0) {
+            // Duration::from_secs_f32(1.0 / 60.0)
+            if delta > Duration::from_secs_f32(1.0 / self.speed) {
                 self.prev_time = time;
                 self.simulate();
             }
@@ -363,23 +363,18 @@ impl<const N: usize> App for Smarticles<N> {
 
             ui.horizontal(|ui| {
                 ui.label("World Width:");
-                if ui
-                    .add(Slider::new(&mut self.world_w, 100.0..=1000.0))
-                    .changed()
-                {
+                let world_w = ui.add(Slider::new(&mut self.world_w, MIN_WORLD_W..=MAX_WORLD_W));
+                ui.label("World Height:");
+                let world_h = ui.add(Slider::new(&mut self.world_h, MIN_WORLD_H..=MAX_WORLD_H));
+
+                if world_w.changed() || world_h.changed() {
                     self.seed = self.export();
                     self.spawn();
                 }
             });
             ui.horizontal(|ui| {
-                ui.label("World Height:");
-                if ui
-                    .add(Slider::new(&mut self.world_h, 100.0..=1000.0))
-                    .changed()
-                {
-                    self.seed = self.export();
-                    self.spawn();
-                }
+                ui.label("Speed:");
+                ui.add(Slider::new(&mut self.speed, MIN_SPEED..=MAX_SPEED));
             });
 
             ScrollArea::vertical().show(ui, |ui| {
@@ -456,23 +451,28 @@ impl<const N: usize> App for Smarticles<N> {
             });
         });
 
-        CentralPanel::default().show(ctx, |ui| {
-            let (resp, paint) =
-                ui.allocate_painter(ui.available_size_before_wrap(), Sense::hover());
+        CentralPanel::default()
+            .frame(egui::Frame {
+                fill: Color32::from_rgba_unmultiplied(4, 4, 4, 255),
+                ..Default::default()
+            })
+            .show(ctx, |ui| {
+                let (resp, paint) =
+                    ui.allocate_painter(ui.available_size_before_wrap(), Sense::hover());
 
-            let min = resp.rect.min
-                + Vec2::new(
-                    (resp.rect.width() - self.world_w) / 2.0,
-                    (resp.rect.height() - self.world_h) / 2.0,
-                );
+                let min = resp.rect.min
+                    + Vec2::new(
+                        (resp.rect.width() - self.world_w) / 2.0,
+                        (resp.rect.height() - self.world_h) / 2.0,
+                    );
 
-            for i in 0..N {
-                let p = &self.params[i];
-                let col: Color32 = p.color.into();
-                for dot in &self.dots[i] {
-                    paint.circle_filled(min + dot.pos, PARTICLE_SIZE / 2.0, col);
+                for i in 0..N {
+                    let p = &self.params[i];
+                    let col: Color32 = p.color.into();
+                    for dot in &self.dots[i] {
+                        paint.circle_filled(min + dot.pos, PARTICLE_SIZE / 2.0, col);
+                    }
                 }
-            }
-        });
+            });
     }
 }
