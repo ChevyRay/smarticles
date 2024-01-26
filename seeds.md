@@ -60,3 +60,7 @@
 - `hamlets_lingers`: big red cell with interesting shape. It can not merge (unstable) with the other one when there is two of them remaining.
 - `vaginae_invecked`: red circle attacks blue particles. orange+yellow chases red. orange+purple makes stable cell.
 - `nominy_tamboo`: light blue, purple and pink form cells with an interesting organisation.
+- `adored_duvetine`: different structures, very lively.
+- `hepcat_radius`
+- `lifeway_unambush`
+- `bestreak_incised`

@@ -1,3 +1,7 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::time::{Duration, Instant};
+
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use eframe::epaint::Color32;
 use eframe::{App, Frame, NativeOptions};
@@ -6,9 +10,6 @@ use rand::distributions::OpenClosed01;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::time::{Duration, Instant};
 
 const PARTICLE_SIZE: f32 = 1.5;
 
@@ -29,7 +30,7 @@ const MIN_RADIUS: f32 = 0.0;
 const MAX_RADIUS: f32 = 200.0;
 
 const INIT_SPEED: f32 = 60.0;
-const MIN_SPEED: f32 = 10.0;
+const MIN_SPEED: f32 = 2.0;
 const MAX_SPEED: f32 = 60.0;
 
 fn main() {
@@ -38,6 +39,7 @@ fn main() {
         fullscreen: true,
         ..Default::default()
     };
+
     eframe::run_native(
         "Smarticles",
         options,
