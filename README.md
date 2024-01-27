@@ -14,7 +14,7 @@ simulator with some fun features.
 ## Smarticles fork changes compared to original 
 
 - [x] add more particle types
-- [ ] separate the interface/display thread from the simulation thread for improved performance
+- [ ] separate the interface/display frame rate from the simulation tick rate
 
 ## Running the App
 
