@@ -1,4 +1,5 @@
 # Smarticles
+
 A Rust port of [Brainxyz's Artificial Life](https://www.youtube.com/watch?v=0Kx4Y9TVMGg)
 simulator with some fun features.
 
@@ -9,6 +10,11 @@ simulator with some fun features.
 > – from the [original repository](https://github.com/hunar4321/life_code)
 
 ![animation of the app simulating particles](./img/app_anim.gif)
+
+## Smarticles fork changes compared to original 
+
+- [x]: add more particle types
+- [ ]: separate the interface/display thread from the simulation thread for improved performance
 
 ## Running the App
 
