@@ -13,8 +13,8 @@ simulator with some fun features.
 
 ## Smarticles fork changes compared to original 
 
-- [x]: add more particle types
-- [ ]: separate the interface/display thread from the simulation thread for improved performance
+- [x] add more particle types
+- [ ] separate the interface/display thread from the simulation thread for improved performance
 
 ## Running the App
 
