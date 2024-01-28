@@ -23,13 +23,16 @@ const MAX_WORLD_H: f32 = 1000.0;
 const MIN_COUNT: usize = 0;
 const MAX_COUNT: usize = 800;
 
-const MAX_POWER: f32 = 50.0;
+const MAX_POWER: f32 = 60.0;
 const MIN_POWER: f32 = -MAX_POWER;
 
-const MIN_RADIUS: f32 = 0.0;
-const MAX_RADIUS: f32 = 200.0;
+const MIN_RADIUS: f32 = 10.0;
+const MAX_RADIUS: f32 = 160.0;
 
-const SPEED_FACTOR: f32 = 8.;
+const DEFAULT_SPEED_FACTOR: f32 = 20.;
+const MIN_SPEED_FACTOR: f32 = 2.;
+const MAX_SPEED_FACTOR: f32 = 80.;
+
 const DAMPING_FACTOR: f32 = 0.5;
 
 const DEFAULT_ZOOM: f32 = 1.;
@@ -66,6 +69,7 @@ struct Smarticles<const N: usize> {
     dots: [Vec<Dot>; N],
     play: bool,
     prev_time: Instant,
+    sleep_factor: f32,
     seed: String,
     view: View,
     words: Vec<String>,
@@ -139,6 +143,7 @@ impl<const N: usize> Smarticles<N> {
             dots: std::array::from_fn(|_| Vec::new()),
             play: false,
             prev_time: Instant::now(),
+            sleep_factor: DEFAULT_SPEED_FACTOR,
             seed: String::new(),
             view: View::DEFAULT,
             words,
@@ -236,6 +241,7 @@ impl<const N: usize> Smarticles<N> {
                         dots_i,
                         dot,
                         dt,
+                        self.sleep_factor,
                         self.params[i].power[j],
                         self.params[i].radius[j],
                         self.world_w,
@@ -287,6 +293,7 @@ fn interaction(
     group1: &mut [Dot],
     group2: &[Dot],
     dt: f32,
+    speed_factor: f32,
     g: f32,
     radius: f32,
     world_w: f32,
@@ -304,7 +311,7 @@ fn interaction(
         }
 
         p1.vel = (p1.vel + f * g) * DAMPING_FACTOR;
-        p1.pos += p1.vel * SPEED_FACTOR * dt;
+        p1.pos += p1.vel * speed_factor * dt;
 
         if (p1.pos.x < 10.0 && p1.vel.x < 0.0) || (p1.pos.x > world_w - 10.0 && p1.vel.x > 0.0) {
             p1.vel.x *= -8.0;
@@ -388,12 +395,35 @@ impl<const N: usize> App for Smarticles<N> {
             ui.horizontal(|ui| {
                 ui.label("World Width:");
                 let world_w = ui.add(Slider::new(&mut self.world_w, MIN_WORLD_W..=MAX_WORLD_W));
-                ui.label("World Height:");
-                let world_h = ui.add(Slider::new(&mut self.world_h, MIN_WORLD_H..=MAX_WORLD_H));
+                if ui.button("Reset").clicked() {
+                    self.world_w = INIT_WIDTH;
+                }
 
-                if world_w.changed() || world_h.changed() {
+                if world_w.changed() {
                     self.seed = self.export();
                     self.spawn();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("World Height:");
+                let world_h = ui.add(Slider::new(&mut self.world_h, MIN_WORLD_H..=MAX_WORLD_H));
+                if ui.button("Reset").clicked() {
+                    self.world_h = INIT_HEIGHT;
+                }
+
+                if world_h.changed() {
+                    self.seed = self.export();
+                    self.spawn();
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Speed Factor:");
+                ui.add(Slider::new(
+                    &mut self.sleep_factor,
+                    MIN_SPEED_FACTOR..=MAX_SPEED_FACTOR,
+                ));
+                if ui.button("Reset").clicked() {
+                    self.sleep_factor = DEFAULT_SPEED_FACTOR;
                 }
             });
 
