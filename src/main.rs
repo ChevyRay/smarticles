@@ -496,8 +496,13 @@ impl<const N: usize> App for Smarticles<N> {
                 let (resp, paint) =
                     ui.allocate_painter(ui.available_size_before_wrap(), Sense::hover());
 
-                self.view.zoom += ctx.input().scroll_delta.y * 0.01;
-                self.view.zoom = self.view.zoom.max(0.1); // prevent zoom from going below 0.1
+                if resp
+                    .rect
+                    .contains(ctx.input().pointer.interact_pos().unwrap_or_default())
+                {
+                    self.view.zoom += ctx.input().scroll_delta.y * 0.01;
+                }
+                self.view.zoom = self.view.zoom.max(0.1);
 
                 let mut min = resp.rect.min
                     + Vec2::new(
