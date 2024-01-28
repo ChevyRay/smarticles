@@ -50,7 +50,7 @@ Try randomizing it a few times and seeing what kind of results you get.
 
 ![animation of the app simulating particles](./img/app_anim2.gif)
 
-There are 4 particle types. You can change the behavior of each with the sliders:
+There are 8 particle types. You can change the behavior of each with respect to any other with the sliders:
 
 ![screenshot of particle's parameters](./img/params.png)
 
