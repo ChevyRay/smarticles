@@ -364,6 +364,10 @@ impl<const N: usize> App for Smarticles<N> {
                     self.spawn();
                 }
 
+                if ui.button("Reset View").clicked() {
+                    self.view = View::DEFAULT;
+                }
+
                 if ui.button("Reset").clicked() {
                     self.restart();
                 }
@@ -390,11 +394,6 @@ impl<const N: usize> App for Smarticles<N> {
                 if world_w.changed() || world_h.changed() {
                     self.seed = self.export();
                     self.spawn();
-                }
-            });
-            ui.horizontal(|ui| {
-                if ui.button("Reset View").clicked() {
-                    self.view = View::DEFAULT;
                 }
             });
 
