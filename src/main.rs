@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use eframe::epaint::Color32;
 use eframe::{App, Frame, NativeOptions};
-use egui::{CentralPanel, Context, Rgba, ScrollArea, Sense, SidePanel, Slider, Vec2};
+use egui::{CentralPanel, Context, Pos2, Rgba, ScrollArea, Sense, SidePanel, Slider, Vec2};
 use rand::distributions::OpenClosed01;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -29,9 +29,14 @@ const MIN_POWER: f32 = -MAX_POWER;
 const MIN_RADIUS: f32 = 0.0;
 const MAX_RADIUS: f32 = 200.0;
 
-const INIT_SPEED: f32 = 60.0;
-const MIN_SPEED: f32 = 2.0;
-const MAX_SPEED: f32 = 60.0;
+const INIT_SPEED: f32 = 8.0;
+const SPEED_FACTOR: f32 = 5.;
+const MIN_SPEED: f32 = 1.0;
+const MAX_SPEED: f32 = 10.0;
+
+const DAMPING_FACTOR: f32 = 0.5;
+
+const DEFAULT_ZOOM: f32 = 1.;
 
 fn main() {
     let options = NativeOptions {
@@ -40,26 +45,22 @@ fn main() {
         ..Default::default()
     };
 
-    eframe::run_native(
-        "Smarticles",
-        options,
-        Box::new(|_| {
-            Box::new(Smarticles::new(
-                INIT_WIDTH,
-                INIT_HEIGHT,
-                [
-                    ("α", Rgba::from_srgba_unmultiplied(255, 0, 0, 255)),
-                    ("β", Rgba::from_srgba_unmultiplied(255, 140, 0, 255)),
-                    ("γ", Rgba::from_srgba_unmultiplied(225, 255, 0, 255)),
-                    ("δ", Rgba::from_srgba_unmultiplied(68, 255, 0, 255)),
-                    ("ε", Rgba::from_srgba_unmultiplied(0, 247, 255, 255)),
-                    ("ζ", Rgba::from_srgba_unmultiplied(40, 60, 255, 255)),
-                    ("η", Rgba::from_srgba_unmultiplied(166, 0, 255, 255)),
-                    ("θ", Rgba::from_srgba_unmultiplied(247, 0, 243, 255)),
-                ],
-            ))
-        }),
+    let smarticles = Smarticles::new(
+        INIT_WIDTH,
+        INIT_HEIGHT,
+        [
+            ("α", Rgba::from_srgba_unmultiplied(255, 0, 0, 255)),
+            ("β", Rgba::from_srgba_unmultiplied(255, 140, 0, 255)),
+            ("γ", Rgba::from_srgba_unmultiplied(225, 255, 0, 255)),
+            ("δ", Rgba::from_srgba_unmultiplied(68, 255, 0, 255)),
+            ("ε", Rgba::from_srgba_unmultiplied(0, 247, 255, 255)),
+            ("ζ", Rgba::from_srgba_unmultiplied(40, 60, 255, 255)),
+            ("η", Rgba::from_srgba_unmultiplied(166, 0, 255, 255)),
+            ("θ", Rgba::from_srgba_unmultiplied(247, 0, 243, 255)),
+        ],
     );
+
+    eframe::run_native("Smarticles", options, Box::new(|_| Box::new(smarticles)));
 }
 
 struct Smarticles<const N: usize> {
@@ -69,9 +70,28 @@ struct Smarticles<const N: usize> {
     dots: [Vec<Dot>; N],
     play: bool,
     prev_time: Instant,
-    speed: f32,
+    simulation_speed: f32,
     seed: String,
+    view: View,
     words: Vec<String>,
+}
+
+struct View {
+    zoom: f32,
+    pos: Pos2,
+    dragging: bool,
+    drag_start_pos: Pos2,
+    drag_start_view_pos: Pos2,
+}
+
+impl View {
+    const DEFAULT: View = Self {
+        zoom: DEFAULT_ZOOM,
+        pos: Pos2::ZERO,
+        dragging: false,
+        drag_start_pos: Pos2::ZERO,
+        drag_start_view_pos: Pos2::ZERO,
+    };
 }
 
 struct Params<const N: usize> {
@@ -124,8 +144,9 @@ impl<const N: usize> Smarticles<N> {
             dots: std::array::from_fn(|_| Vec::new()),
             play: false,
             prev_time: Instant::now(),
-            speed: INIT_SPEED,
+            simulation_speed: INIT_SPEED,
             seed: String::new(),
+            view: View::DEFAULT,
             words,
         }
     }
@@ -146,6 +167,7 @@ impl<const N: usize> Smarticles<N> {
             p.radius.iter_mut().for_each(|r| *r = 0.0);
             p.power.iter_mut().for_each(|p| *p = 0.0);
         }
+        self.clear();
     }
 
     fn clear(&mut self) {
@@ -209,16 +231,18 @@ impl<const N: usize> Smarticles<N> {
         }
     }
 
-    fn simulate(&mut self) {
+    fn simulate(&mut self, dt: f32) {
         let dots_clone: [Vec<Dot>; N] = std::array::from_fn(|i| self.dots[i].clone());
         self.dots
             .par_iter_mut()
             .enumerate()
             .for_each(|(i, dots_i)| {
-                for j in 0..N {
+                for (j, dot) in dots_clone.iter().enumerate().take(N) {
                     interaction(
                         dots_i,
-                        &dots_clone[j],
+                        dot,
+                        dt,
+                        self.simulation_speed,
                         self.params[i].power[j],
                         self.params[i].radius[j],
                         self.world_w,
@@ -269,6 +293,8 @@ impl<const N: usize> Smarticles<N> {
 fn interaction(
     group1: &mut [Dot],
     group2: &[Dot],
+    dt: f32,
+    simulation_speed: f32,
     g: f32,
     radius: f32,
     world_w: f32,
@@ -285,8 +311,8 @@ fn interaction(
             }
         }
 
-        p1.vel = (p1.vel + f * g) * 0.5;
-        p1.pos += p1.vel;
+        p1.vel = (p1.vel + f * g) * DAMPING_FACTOR;
+        p1.pos += p1.vel * SPEED_FACTOR * simulation_speed * dt;
 
         if (p1.pos.x < 10.0 && p1.vel.x < 0.0) || (p1.pos.x > world_w - 10.0 && p1.vel.x > 0.0) {
             p1.vel.x *= -8.0;
@@ -313,11 +339,11 @@ impl<const N: usize> App for Smarticles<N> {
     fn update(&mut self, ctx: &Context, frame: &mut Frame) {
         if self.play {
             let time = Instant::now();
-            let delta = time - self.prev_time;
+            let dt = time - self.prev_time;
             // Duration::from_secs_f32(1.0 / 60.0)
-            if delta > Duration::from_secs_f32(1.0 / self.speed) {
+            if dt > Duration::from_millis(20) {
+                self.simulate(dt.as_secs_f32());
                 self.prev_time = time;
-                self.simulate();
             }
             ctx.request_repaint();
         }
@@ -376,7 +402,15 @@ impl<const N: usize> App for Smarticles<N> {
             });
             ui.horizontal(|ui| {
                 ui.label("Speed:");
-                ui.add(Slider::new(&mut self.speed, MIN_SPEED..=MAX_SPEED));
+                ui.add(Slider::new(
+                    &mut self.simulation_speed,
+                    MIN_SPEED..=MAX_SPEED,
+                ));
+            });
+            ui.horizontal(|ui| {
+                if ui.button("Reset View").clicked() {
+                    self.view = View::DEFAULT;
+                }
             });
 
             ScrollArea::vertical().show(ui, |ui| {
@@ -462,17 +496,60 @@ impl<const N: usize> App for Smarticles<N> {
                 let (resp, paint) =
                     ui.allocate_painter(ui.available_size_before_wrap(), Sense::hover());
 
-                let min = resp.rect.min
+                self.view.zoom += ctx.input().scroll_delta.y * 0.01;
+                self.view.zoom = self.view.zoom.max(0.1); // prevent zoom from going below 0.1
+
+                let mut min = resp.rect.min
                     + Vec2::new(
-                        (resp.rect.width() - self.world_w) / 2.0,
-                        (resp.rect.height() - self.world_h) / 2.0,
+                        (resp.rect.width() - self.world_w * self.view.zoom) / 2.0,
+                        (resp.rect.height() - self.world_h * self.view.zoom) / 2.0,
                     );
+
+                if ctx.input().key_pressed(egui::Key::ArrowUp) {
+                    self.view.pos.y += 10.0;
+                }
+                if ctx.input().key_pressed(egui::Key::ArrowDown) {
+                    self.view.pos.y -= 10.0;
+                }
+                if ctx.input().key_pressed(egui::Key::ArrowLeft) {
+                    self.view.pos.x += 10.0;
+                }
+                if ctx.input().key_pressed(egui::Key::ArrowRight) {
+                    self.view.pos.x -= 10.0;
+                }
+
+                if let Some(interact_pos) = ctx.input().pointer.interact_pos() {
+                    if ctx.input().pointer.any_down() && resp.rect.contains(interact_pos) {
+                        if !self.view.dragging {
+                            self.view.dragging = true;
+                            self.view.drag_start_pos = interact_pos;
+                            self.view.drag_start_view_pos = self.view.pos;
+                        }
+                    } else {
+                        self.view.dragging = false;
+                    }
+                }
+
+                if self.view.dragging {
+                    let drag_delta =
+                        ctx.input().pointer.interact_pos().unwrap() - self.view.drag_start_pos;
+                    self.view.pos = self.view.drag_start_view_pos + drag_delta / self.view.zoom;
+                }
+
+                min += self.view.pos.to_vec2() * self.view.zoom;
 
                 for i in 0..N {
                     let p = &self.params[i];
                     let col: Color32 = p.color.into();
                     for dot in &self.dots[i] {
-                        paint.circle_filled(min + dot.pos, PARTICLE_SIZE / 2.0, col);
+                        let pos = min + dot.pos * self.view.zoom;
+                        if pos.x >= resp.rect.min.x
+                            && pos.x <= resp.rect.max.x
+                            && pos.y >= resp.rect.min.y
+                            && pos.y <= resp.rect.max.y
+                        {
+                            paint.circle_filled(pos, (PARTICLE_SIZE / 2.0) * self.view.zoom, col);
+                        }
                     }
                 }
             });

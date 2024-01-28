@@ -3,18 +3,18 @@
 A Rust port of [Brainxyz's Artificial Life](https://www.youtube.com/watch?v=0Kx4Y9TVMGg)
 simulator with some fun features.
 
-> *A simple program to simulate primitive Artificial Life using simple rules of
+> _A simple program to simulate primitive Artificial Life using simple rules of
 > attraction or repulsion among atom-like particles, producing complex
-> self-organzing life-like patterns.*
-> 
+> self-organzing life-like patterns._
+>
 > – from the [original repository](https://github.com/hunar4321/life_code)
 
 ![animation of the app simulating particles](./img/app_anim.gif)
 
-## Smarticles fork changes compared to original 
+## What has changed/will change compared to the original in this fork
 
 - [x] add more particle types
-- [ ] separate the interface/display frame rate from the simulation tick rate
+- [x] make it possible to move around and zoom
 
 ## Running the App
 
@@ -63,11 +63,11 @@ see the effect they have:
 
 ## Sharing Simulations
 
-The `Seed` field is the *D.N.A* of your particle system. It contains all the
+The `Seed` field is the _D.N.A_ of your particle system. It contains all the
 information needed to replicate the current simulation. Pressing `Randomize`
 will give you random seeds, but you can also enter a custom one.
 
-What does *your* name look like?
+What does _your_ name look like?
 
 ![simulation using "chevy" as the seed](./img/custom_seed.gif)
 
