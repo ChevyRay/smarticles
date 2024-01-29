@@ -524,19 +524,6 @@ impl<const N: usize> App for Smarticles<N> {
                         (resp.rect.height() - self.world_h * self.view.zoom) / 2.0,
                     );
 
-                if ctx.input().key_pressed(egui::Key::ArrowUp) {
-                    self.view.pos.y += 10.0;
-                }
-                if ctx.input().key_pressed(egui::Key::ArrowDown) {
-                    self.view.pos.y -= 10.0;
-                }
-                if ctx.input().key_pressed(egui::Key::ArrowLeft) {
-                    self.view.pos.x += 10.0;
-                }
-                if ctx.input().key_pressed(egui::Key::ArrowRight) {
-                    self.view.pos.x -= 10.0;
-                }
-
                 if let Some(interact_pos) = ctx.input().pointer.interact_pos() {
                     if ctx.input().pointer.any_down() && resp.rect.contains(interact_pos) {
                         if !self.view.dragging {
