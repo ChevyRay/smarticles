@@ -11,10 +11,16 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 
+/// Tick per second: update rate of the simulation
+const TPS: f32 = 1. / 90.;
+/// Frame per second: update rate of the UI
+const FPS: f32 = 1.0 / 60.0;
+
 const PARTICLE_SIZE: f32 = 1.5;
 
-const INIT_WIDTH: f32 = INIT_HEIGHT * 1.618;
-const INIT_HEIGHT: f32 = 600.0;
+const DEFAULT_WIDTH: f32 = DEFAULT_HEIGHT * 1.618;
+const DEFAULT_HEIGHT: f32 = 600.0;
+
 const MIN_WORLD_W: f32 = 100.0;
 const MAX_WORLD_W: f32 = 1000.0;
 const MIN_WORLD_H: f32 = 100.0;
@@ -33,7 +39,7 @@ const DEFAULT_SPEED_FACTOR: f32 = 20.;
 const MIN_SPEED_FACTOR: f32 = 2.;
 const MAX_SPEED_FACTOR: f32 = 80.;
 
-const DAMPING_FACTOR: f32 = 0.5;
+const DEFAULT_DAMPING_FACTOR: f32 = 0.5;
 
 const DEFAULT_ZOOM: f32 = 1.;
 
@@ -45,8 +51,8 @@ fn main() {
     };
 
     let smarticles = Smarticles::new(
-        INIT_WIDTH,
-        INIT_HEIGHT,
+        DEFAULT_WIDTH,
+        DEFAULT_HEIGHT,
         [
             ("α", Rgba::from_srgba_unmultiplied(255, 0, 0, 255)),
             ("β", Rgba::from_srgba_unmultiplied(255, 140, 0, 255)),
@@ -69,7 +75,8 @@ struct Smarticles<const N: usize> {
     dots: [Vec<Dot>; N],
     play: bool,
     prev_time: Instant,
-    sleep_factor: f32,
+    prev_frame_time: Instant,
+    speed_factor: f32,
     seed: String,
     view: View,
     words: Vec<String>,
@@ -143,7 +150,8 @@ impl<const N: usize> Smarticles<N> {
             dots: std::array::from_fn(|_| Vec::new()),
             play: false,
             prev_time: Instant::now(),
-            sleep_factor: DEFAULT_SPEED_FACTOR,
+            prev_frame_time: Instant::now(),
+            speed_factor: DEFAULT_SPEED_FACTOR,
             seed: String::new(),
             view: View::DEFAULT,
             words,
@@ -159,8 +167,8 @@ impl<const N: usize> Smarticles<N> {
     }
 
     fn restart(&mut self) {
-        self.world_w = INIT_WIDTH;
-        self.world_h = INIT_HEIGHT;
+        self.world_w = DEFAULT_WIDTH;
+        self.world_h = DEFAULT_HEIGHT;
         for p in &mut self.params {
             p.count = 0;
             p.radius.iter_mut().for_each(|r| *r = 0.0);
@@ -241,7 +249,7 @@ impl<const N: usize> Smarticles<N> {
                         dots_i,
                         dot,
                         dt,
-                        self.sleep_factor,
+                        self.speed_factor,
                         self.params[i].power[j],
                         self.params[i].radius[j],
                         self.world_w,
@@ -255,6 +263,7 @@ impl<const N: usize> Smarticles<N> {
         let mut bytes: Vec<u8> = Vec::new();
         bytes.write_u16::<LE>(self.world_w as u16).unwrap();
         bytes.write_u16::<LE>(self.world_h as u16).unwrap();
+        bytes.write_u16::<LE>(self.speed_factor as u16).unwrap();
         for p in &self.params {
             bytes.write_u8((p.color.r() * 255.0) as u8).unwrap();
             bytes.write_u8((p.color.g() * 255.0) as u8).unwrap();
@@ -271,8 +280,11 @@ impl<const N: usize> Smarticles<N> {
     }
 
     fn import(&mut self, mut bytes: &[u8]) {
-        self.world_w = bytes.read_u16::<LE>().unwrap_or(1000) as f32;
-        self.world_h = bytes.read_u16::<LE>().unwrap_or(1000) as f32;
+        self.world_w = bytes.read_u16::<LE>().unwrap_or(DEFAULT_HEIGHT as u16) as f32;
+        self.world_h = bytes.read_u16::<LE>().unwrap_or(DEFAULT_WIDTH as u16) as f32;
+        self.speed_factor = bytes
+            .read_u16::<LE>()
+            .unwrap_or(DEFAULT_SPEED_FACTOR as u16) as f32;
         for p in &mut self.params {
             let r = (bytes.read_u8().unwrap_or((p.color.r() * 255.0) as u8) as f32) / 255.0;
             let g = (bytes.read_u8().unwrap_or((p.color.g() * 255.0) as u8) as f32) / 255.0;
@@ -310,15 +322,30 @@ fn interaction(
             }
         }
 
-        p1.vel = (p1.vel + f * g) * DAMPING_FACTOR;
+        p1.vel = (p1.vel + f * g) * DEFAULT_DAMPING_FACTOR;
         p1.pos += p1.vel * speed_factor * dt;
 
-        if (p1.pos.x < 10.0 && p1.vel.x < 0.0) || (p1.pos.x > world_w - 10.0 && p1.vel.x > 0.0) {
-            p1.vel.x *= -8.0;
+        if p1.pos.x < 0.0 {
+            p1.pos.x = 0.0;
+            p1.vel.x = 10.;
+        } else if p1.pos.x >= world_w {
+            p1.pos.x = world_w;
+            p1.vel.x = -10.;
         }
-        if (p1.pos.y < 10.0 && p1.vel.y < 0.0) || (p1.pos.y > world_h - 10.0 && p1.vel.y > 0.0) {
-            p1.vel.y *= -8.0;
+        if p1.pos.y < 0.0 {
+            p1.pos.y = 0.0;
+            p1.vel.y = 10.;
+        } else if p1.pos.y >= world_h {
+            p1.pos.y = world_h;
+            p1.vel.y = -10.;
         }
+
+        // if (p1.pos.x < 10.0 && p1.vel.x < 0.0) || (p1.pos.x > world_w - 10.0 && p1.vel.x > 0.0) {
+        //     p1.vel.x *= -8.0;
+        // }
+        // if (p1.pos.y < 10.0 && p1.vel.y < 0.0) || (p1.pos.y > world_h - 10.0 && p1.vel.y > 0.0) {
+        //     p1.vel.y *= -8.0;
+        // }
 
         // alternative: wrap
         // if p1.pos.x < 0.0 {
@@ -340,10 +367,16 @@ impl<const N: usize> App for Smarticles<N> {
             let time = Instant::now();
             let dt = time - self.prev_time;
             // Duration::from_secs_f32(1.0 / 60.0)
-            if dt > Duration::from_millis(20) {
+            if dt > Duration::from_secs_f32(TPS) {
                 self.simulate(dt.as_secs_f32());
                 self.prev_time = time;
             }
+        }
+
+        let frame_time = Instant::now();
+        let dt = frame_time - self.prev_frame_time;
+        if dt > Duration::from_secs_f32(FPS) {
+            self.prev_frame_time = frame_time;
             ctx.request_repaint();
         }
 
@@ -395,11 +428,11 @@ impl<const N: usize> App for Smarticles<N> {
             ui.horizontal(|ui| {
                 ui.label("World Width:");
                 let world_w = ui.add(Slider::new(&mut self.world_w, MIN_WORLD_W..=MAX_WORLD_W));
-                if ui.button("Reset").clicked() {
-                    self.world_w = INIT_WIDTH;
+                let reset = ui.button("Reset");
+                if reset.clicked() {
+                    self.world_w = DEFAULT_WIDTH;
                 }
-
-                if world_w.changed() {
+                if world_w.changed() || reset.clicked() {
                     self.seed = self.export();
                     self.spawn();
                 }
@@ -407,23 +440,27 @@ impl<const N: usize> App for Smarticles<N> {
             ui.horizontal(|ui| {
                 ui.label("World Height:");
                 let world_h = ui.add(Slider::new(&mut self.world_h, MIN_WORLD_H..=MAX_WORLD_H));
-                if ui.button("Reset").clicked() {
-                    self.world_h = INIT_HEIGHT;
+                let reset = ui.button("Reset");
+                if reset.clicked() {
+                    self.world_h = DEFAULT_HEIGHT;
                 }
-
-                if world_h.changed() {
+                if world_h.changed() || reset.clicked() {
                     self.seed = self.export();
                     self.spawn();
                 }
             });
             ui.horizontal(|ui| {
                 ui.label("Speed Factor:");
-                ui.add(Slider::new(
-                    &mut self.sleep_factor,
+                let speed_factor = ui.add(Slider::new(
+                    &mut self.speed_factor,
                     MIN_SPEED_FACTOR..=MAX_SPEED_FACTOR,
                 ));
-                if ui.button("Reset").clicked() {
-                    self.sleep_factor = DEFAULT_SPEED_FACTOR;
+                let reset = ui.button("Reset");
+                if reset.clicked() {
+                    self.speed_factor = DEFAULT_SPEED_FACTOR;
+                }
+                if speed_factor.changed() || reset.clicked() {
+                    self.seed = self.export();
                 }
             });
 
