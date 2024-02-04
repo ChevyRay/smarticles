@@ -5,79 +5,97 @@ use std::time::{Duration, Instant};
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use eframe::epaint::Color32;
 use eframe::{App, Frame, NativeOptions};
+use egui::plot::{Line, Plot, PlotPoints};
 use egui::{CentralPanel, Context, Pos2, Rgba, ScrollArea, Sense, SidePanel, Slider, Vec2};
 use rand::distributions::OpenClosed01;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 
-/// Tick per second: update rate of the simulation
+/// Tick per second: update rate of the simulation.
 const TPS: f32 = 1. / 90.;
-/// Frame per second: update rate of the UI
-const FPS: f32 = 1.0 / 60.0;
+/// Frame per second: update rate of the UI.
+const FPS: f32 = 1. / 60.;
 
+/// Minimum number of particle types in the simulation.
+const MIN_TYPES: usize = 3;
+/// Maximum number of particle types in the simulation.
+const MAX_TYPES: usize = 8;
+
+/// Size of the particles in the simulation.
 const PARTICLE_SIZE: f32 = 1.5;
 
+/// Default world width the simulation.
 const DEFAULT_WIDTH: f32 = DEFAULT_HEIGHT * 1.618;
-const DEFAULT_HEIGHT: f32 = 600.0;
+/// Default world height the simulation.
+const DEFAULT_HEIGHT: f32 = 600.;
 
-const MIN_WORLD_W: f32 = 100.0;
-const MAX_WORLD_W: f32 = 1000.0;
-const MIN_WORLD_H: f32 = 100.0;
-const MAX_WORLD_H: f32 = 1000.0;
+/// Minimum world width the simulation.
+const MIN_WORLD_W: f32 = 100.;
+/// Maximum world width the simulation.
+const MAX_WORLD_W: f32 = 1000.;
+/// Minimum world height the simulation.
+const MIN_WORLD_H: f32 = MIN_WORLD_W;
+/// Maximum world height the simulation.
+const MAX_WORLD_H: f32 = MAX_WORLD_W;
 
-const MIN_COUNT: usize = 0;
-const MAX_COUNT: usize = 800;
+const MIN_COUNT: usize = 50;
+/// Total maximum number of particles in the simulation.
+const MAX_TOTAL_COUNT: usize = 10000;
+const DEFAULT_MAX_TOTAL_COUNT: usize = 8000;
 
-const MAX_POWER: f32 = 60.0;
+const MAX_POWER: f32 = 50.;
 const MIN_POWER: f32 = -MAX_POWER;
 
-const MIN_RADIUS: f32 = 10.0;
-const MAX_RADIUS: f32 = 160.0;
+const MIN_RADIUS: f32 = 10.;
+const MAX_RADIUS: f32 = 100.;
 
-const DEFAULT_SPEED_FACTOR: f32 = 20.;
+const DEFAULT_SPEED_FACTOR: f32 = 40.;
 const MIN_SPEED_FACTOR: f32 = 2.;
 const MAX_SPEED_FACTOR: f32 = 80.;
 
 const DEFAULT_DAMPING_FACTOR: f32 = 0.5;
 
 const DEFAULT_ZOOM: f32 = 1.;
+const MIN_ZOOM: f32 = 1.;
+const MAX_ZOOM: f32 = 6.;
+const ZOOM_FACTOR: f32 = 0.02;
 
 fn main() {
     let options = NativeOptions {
-        // initial_window_size: Some(Vec2::new(1600.0, 900.0)),
+        // initial_window_size: Some(Vec2::new(1600., 900.)),
         fullscreen: true,
         ..Default::default()
     };
 
-    let smarticles = Smarticles::new(
-        DEFAULT_WIDTH,
-        DEFAULT_HEIGHT,
-        [
-            ("α", Rgba::from_srgba_unmultiplied(255, 0, 0, 255)),
-            ("β", Rgba::from_srgba_unmultiplied(255, 140, 0, 255)),
-            ("γ", Rgba::from_srgba_unmultiplied(225, 255, 0, 255)),
-            ("δ", Rgba::from_srgba_unmultiplied(68, 255, 0, 255)),
-            ("ε", Rgba::from_srgba_unmultiplied(0, 247, 255, 255)),
-            ("ζ", Rgba::from_srgba_unmultiplied(40, 60, 255, 255)),
-            ("η", Rgba::from_srgba_unmultiplied(166, 0, 255, 255)),
-            ("θ", Rgba::from_srgba_unmultiplied(247, 0, 243, 255)),
-        ],
-    );
+    let smarticles = Smarticles::new([
+        ("α", Rgba::from_srgba_unmultiplied(255, 0, 0, 255)),
+        ("β", Rgba::from_srgba_unmultiplied(255, 140, 0, 255)),
+        ("γ", Rgba::from_srgba_unmultiplied(225, 255, 0, 255)),
+        ("δ", Rgba::from_srgba_unmultiplied(68, 255, 0, 255)),
+        ("ε", Rgba::from_srgba_unmultiplied(0, 247, 255, 255)),
+        ("ζ", Rgba::from_srgba_unmultiplied(40, 60, 255, 255)),
+        ("η", Rgba::from_srgba_unmultiplied(166, 0, 255, 255)),
+        ("θ", Rgba::from_srgba_unmultiplied(247, 0, 243, 255)),
+    ]);
 
     eframe::run_native("Smarticles", options, Box::new(|_| Box::new(smarticles)));
 }
 
-struct Smarticles<const N: usize> {
+struct Smarticles {
     world_w: f32,
     world_h: f32,
-    params: [Params<N>; N],
-    dots: [Vec<Dot>; N],
+
     play: bool,
-    prev_time: Instant,
-    prev_frame_time: Instant,
+    type_count: usize,
+    max_total_count: usize,
     speed_factor: f32,
     seed: String,
+
+    params: [Params; MAX_TYPES],
+    dots: [Vec<Dot>; MAX_TYPES],
+    prev_time: Instant,
+    prev_frame_time: Instant,
     view: View,
     words: Vec<String>,
 }
@@ -100,13 +118,13 @@ impl View {
     };
 }
 
-struct Params<const N: usize> {
+struct Params {
     name: String,
     heading: String,
     color: Rgba,
     count: usize,
-    power: [f32; N],
-    radius: [f32; N],
+    power: [f32; MAX_TYPES],
+    radius: [f32; MAX_TYPES],
 }
 
 #[derive(Clone, Copy)]
@@ -115,8 +133,8 @@ struct Dot {
     vel: Vec2,
 }
 
-impl<const N: usize> Smarticles<N> {
-    fn new<S>(world_w: f32, world_h: f32, colors: [(S, Rgba); N]) -> Self
+impl Smarticles {
+    fn new<S>(types: [(S, Rgba); MAX_TYPES]) -> Self
     where
         S: ToString,
     {
@@ -137,28 +155,33 @@ impl<const N: usize> Smarticles<N> {
             .collect();
 
         Self {
-            world_w,
-            world_h,
-            params: colors.map(|(name, color)| Params {
+            world_w: DEFAULT_WIDTH,
+            world_h: DEFAULT_HEIGHT,
+
+            play: false,
+            type_count: MAX_TYPES,
+            max_total_count: DEFAULT_MAX_TOTAL_COUNT,
+            speed_factor: DEFAULT_SPEED_FACTOR,
+            seed: String::new(),
+
+            params: types.map(|(name, color)| Params {
                 name: name.to_string(),
                 heading: "Type ".to_string() + &name.to_string(),
                 color,
                 count: 0,
-                power: [0.0; N],
-                radius: [MIN_RADIUS; N],
+                power: [0.; MAX_TYPES],
+                radius: [MIN_RADIUS; MAX_TYPES],
             }),
             dots: std::array::from_fn(|_| Vec::new()),
-            play: false,
             prev_time: Instant::now(),
             prev_frame_time: Instant::now(),
-            speed_factor: DEFAULT_SPEED_FACTOR,
-            seed: String::new(),
             view: View::DEFAULT,
             words,
         }
     }
 
     fn play(&mut self) {
+        self.prev_time = Instant::now();
         self.play = true;
     }
 
@@ -169,16 +192,19 @@ impl<const N: usize> Smarticles<N> {
     fn restart(&mut self) {
         self.world_w = DEFAULT_WIDTH;
         self.world_h = DEFAULT_HEIGHT;
+        self.max_total_count = DEFAULT_MAX_TOTAL_COUNT;
+        self.speed_factor = DEFAULT_SPEED_FACTOR;
+        self.view = View::DEFAULT;
         for p in &mut self.params {
             p.count = 0;
-            p.radius.iter_mut().for_each(|r| *r = 0.0);
-            p.power.iter_mut().for_each(|p| *p = 0.0);
+            p.radius.iter_mut().for_each(|r| *r = 0.);
+            p.power.iter_mut().for_each(|p| *p = 0.);
         }
         self.clear();
     }
 
     fn clear(&mut self) {
-        for i in 0..N {
+        for i in 0..MAX_TYPES {
             self.dots[i].clear();
         }
     }
@@ -188,7 +214,7 @@ impl<const N: usize> Smarticles<N> {
 
         let mut rand = SmallRng::from_entropy();
 
-        for i in 0..N {
+        for i in 0..self.type_count {
             self.dots[i].clear();
             for _ in 0..self.params[i].count {
                 self.dots[i].push(Dot {
@@ -223,28 +249,31 @@ impl<const N: usize> Smarticles<N> {
         const POW_F: f32 = 1.25;
         const RAD_F: f32 = 1.1;
 
-        for i in 0..N {
-            self.params[i].count = rand(MIN_COUNT as f32, MAX_COUNT as f32) as usize;
-            for j in 0..N {
+        for i in 0..self.type_count {
+            self.params[i].count = rand(
+                MIN_COUNT as f32,
+                (self.max_total_count / self.type_count) as f32,
+            ) as usize;
+            for j in 0..self.type_count {
                 let pow = rand(MIN_POWER, MAX_POWER);
-                self.params[i].power[j] = if pow >= 0.0 {
-                    pow.powf(1.0 / POW_F)
+                self.params[i].power[j] = if pow >= 0. {
+                    pow.powf(1. / POW_F)
                 } else {
-                    -pow.abs().powf(1.0 / POW_F)
+                    -pow.abs().powf(1. / POW_F)
                 };
                 //self.params[i].power[j] = rand(MIN_POWER, MAX_POWER);
-                self.params[i].radius[j] = rand(MIN_RADIUS, MAX_RADIUS).powf(1.0 / RAD_F);
+                self.params[i].radius[j] = rand(MIN_RADIUS, MAX_RADIUS).powf(1. / RAD_F);
             }
         }
     }
 
     fn simulate(&mut self, dt: f32) {
-        let dots_clone: [Vec<Dot>; N] = std::array::from_fn(|i| self.dots[i].clone());
+        let dots_clone = self.dots.to_owned();
         self.dots
             .par_iter_mut()
             .enumerate()
             .for_each(|(i, dots_i)| {
-                for (j, dot) in dots_clone.iter().enumerate().take(N) {
+                for (j, dot) in dots_clone.iter().enumerate().take(self.type_count) {
                     interaction(
                         dots_i,
                         dot,
@@ -263,11 +292,12 @@ impl<const N: usize> Smarticles<N> {
         let mut bytes: Vec<u8> = Vec::new();
         bytes.write_u16::<LE>(self.world_w as u16).unwrap();
         bytes.write_u16::<LE>(self.world_h as u16).unwrap();
+        bytes.write_u8(self.type_count as u8).unwrap();
         bytes.write_u16::<LE>(self.speed_factor as u16).unwrap();
         for p in &self.params {
-            bytes.write_u8((p.color.r() * 255.0) as u8).unwrap();
-            bytes.write_u8((p.color.g() * 255.0) as u8).unwrap();
-            bytes.write_u8((p.color.b() * 255.0) as u8).unwrap();
+            bytes.write_u8((p.color.r() * 255.) as u8).unwrap();
+            bytes.write_u8((p.color.g() * 255.) as u8).unwrap();
+            bytes.write_u8((p.color.b() * 255.) as u8).unwrap();
             bytes.write_u16::<LE>(p.count as u16).unwrap();
             for &p in &p.power {
                 bytes.write_i8(p as i8).unwrap();
@@ -282,13 +312,14 @@ impl<const N: usize> Smarticles<N> {
     fn import(&mut self, mut bytes: &[u8]) {
         self.world_w = bytes.read_u16::<LE>().unwrap_or(DEFAULT_HEIGHT as u16) as f32;
         self.world_h = bytes.read_u16::<LE>().unwrap_or(DEFAULT_WIDTH as u16) as f32;
+        self.type_count = bytes.read_u8().unwrap_or(MAX_TYPES as u8) as usize;
         self.speed_factor = bytes
             .read_u16::<LE>()
             .unwrap_or(DEFAULT_SPEED_FACTOR as u16) as f32;
         for p in &mut self.params {
-            let r = (bytes.read_u8().unwrap_or((p.color.r() * 255.0) as u8) as f32) / 255.0;
-            let g = (bytes.read_u8().unwrap_or((p.color.g() * 255.0) as u8) as f32) / 255.0;
-            let b = (bytes.read_u8().unwrap_or((p.color.b() * 255.0) as u8) as f32) / 255.0;
+            let r = (bytes.read_u8().unwrap_or((p.color.r() * 255.) as u8) as f32) / 255.;
+            let g = (bytes.read_u8().unwrap_or((p.color.g() * 255.) as u8) as f32) / 255.;
+            let b = (bytes.read_u8().unwrap_or((p.color.b() * 255.) as u8) as f32) / 255.;
             p.color = Rgba::from_rgb(r, g, b);
             p.count = bytes.read_u16::<LE>().unwrap_or(0) as usize;
             for p in &mut p.power {
@@ -311,13 +342,13 @@ fn interaction(
     world_w: f32,
     world_h: f32,
 ) {
-    let g = g / -100.0;
+    let g = g / -100.;
     group1.par_iter_mut().for_each(|p1| {
         let mut f = Vec2::ZERO;
         for p2 in group2 {
             let d = p1.pos - p2.pos;
             let r = d.length();
-            if r < radius && r > 0.0 {
+            if r < radius && r > 0. {
                 f += d / r;
             }
         }
@@ -325,35 +356,35 @@ fn interaction(
         p1.vel = (p1.vel + f * g) * DEFAULT_DAMPING_FACTOR;
         p1.pos += p1.vel * speed_factor * dt;
 
-        if p1.pos.x < 0.0 {
-            p1.pos.x = 0.0;
+        if p1.pos.x < 0. {
+            p1.pos.x = 0.;
             p1.vel.x = 10.;
         } else if p1.pos.x >= world_w {
             p1.pos.x = world_w;
             p1.vel.x = -10.;
         }
-        if p1.pos.y < 0.0 {
-            p1.pos.y = 0.0;
+        if p1.pos.y < 0. {
+            p1.pos.y = 0.;
             p1.vel.y = 10.;
         } else if p1.pos.y >= world_h {
             p1.pos.y = world_h;
             p1.vel.y = -10.;
         }
 
-        // if (p1.pos.x < 10.0 && p1.vel.x < 0.0) || (p1.pos.x > world_w - 10.0 && p1.vel.x > 0.0) {
-        //     p1.vel.x *= -8.0;
+        // if (p1.pos.x < 10. && p1.vel.x < 0.) || (p1.pos.x > world_w - 10. && p1.vel.x > 0.) {
+        //     p1.vel.x *= -8.;
         // }
-        // if (p1.pos.y < 10.0 && p1.vel.y < 0.0) || (p1.pos.y > world_h - 10.0 && p1.vel.y > 0.0) {
-        //     p1.vel.y *= -8.0;
+        // if (p1.pos.y < 10. && p1.vel.y < 0.) || (p1.pos.y > world_h - 10. && p1.vel.y > 0.) {
+        //     p1.vel.y *= -8.;
         // }
 
         // alternative: wrap
-        // if p1.pos.x < 0.0 {
+        // if p1.pos.x < 0. {
         //     p1.pos.x += world_w;
         // } else if p1.pos.x >= world_w {
         //     p1.pos.x -= world_w;
         // }
-        // if p1.pos.y < 0.0 {
+        // if p1.pos.y < 0. {
         //     p1.pos.y += world_h;
         // } else if p1.pos.y >= world_h {
         //     p1.pos.y -= world_h;
@@ -361,12 +392,11 @@ fn interaction(
     });
 }
 
-impl<const N: usize> App for Smarticles<N> {
+impl App for Smarticles {
     fn update(&mut self, ctx: &Context, frame: &mut Frame) {
         if self.play {
             let time = Instant::now();
             let dt = time - self.prev_time;
-            // Duration::from_secs_f32(1.0 / 60.0)
             if dt > Duration::from_secs_f32(TPS) {
                 self.simulate(dt.as_secs_f32());
                 self.prev_time = time;
@@ -376,8 +406,8 @@ impl<const N: usize> App for Smarticles<N> {
         let frame_time = Instant::now();
         let dt = frame_time - self.prev_frame_time;
         if dt > Duration::from_secs_f32(FPS) {
-            self.prev_frame_time = frame_time;
             ctx.request_repaint();
+            self.prev_frame_time = frame_time;
         }
 
         SidePanel::left("settings").show(ctx, |ui| {
@@ -387,6 +417,7 @@ impl<const N: usize> App for Smarticles<N> {
                 if ui.button("Respawn").clicked() {
                     self.spawn();
                 }
+
                 if self.play {
                     if ui.button("Pause").clicked() {
                         self.stop();
@@ -401,6 +432,7 @@ impl<const N: usize> App for Smarticles<N> {
                     self.seed = format!("{}_{}", self.words[w1], self.words[w2]);
 
                     self.apply_seed();
+                    self.type_count = MAX_TYPES;
                     self.spawn();
                 }
 
@@ -463,10 +495,43 @@ impl<const N: usize> App for Smarticles<N> {
                     self.seed = self.export();
                 }
             });
+            ui.horizontal(|ui| {
+                ui.label("Particle Types:");
+                let type_count = ui.add(Slider::new(&mut self.type_count, MIN_TYPES..=MAX_TYPES));
+                let reset = ui.button("Reset");
+                if reset.clicked() {
+                    self.type_count = MAX_TYPES;
+                }
+                if type_count.changed() || reset.clicked() {
+                    self.seed = self.export();
+                    self.spawn();
+                }
+            });
+            ui.horizontal(|ui| {
+                let max_total_count = ui.label("Maximum Total Particle Count:");
+                ui.add(Slider::new(
+                    &mut self.max_total_count,
+                    MIN_COUNT..=MAX_TOTAL_COUNT,
+                ));
+                let reset = ui.button("Reset");
+                if reset.clicked() {
+                    self.max_total_count = MAX_TOTAL_COUNT;
+                }
+                if max_total_count.changed() || reset.clicked() {
+                    self.spawn();
+                }
+            });
+
+            // TODO Add graph of number of computations per second
+            // ui.separator();
+
+            // Plot::new("test")
+            //     .view_aspect(4.0)
+            //     .show(ui, |plot_ui| plot_ui.line(line));
 
             ScrollArea::vertical().show(ui, |ui| {
-                for i in 0..N {
-                    ui.add_space(10.0);
+                for i in 0..self.type_count {
+                    ui.add_space(10.);
                     ui.colored_label(self.params[i].color, &self.params[i].heading);
                     ui.separator();
 
@@ -488,7 +553,7 @@ impl<const N: usize> App for Smarticles<N> {
                         if ui
                             .add(Slider::new(
                                 &mut self.params[i].count,
-                                MIN_COUNT..=MAX_COUNT,
+                                MIN_COUNT..=(self.max_total_count / self.type_count),
                             ))
                             .changed()
                         {
@@ -498,7 +563,7 @@ impl<const N: usize> App for Smarticles<N> {
 
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
-                            for j in 0..N {
+                            for j in 0..self.type_count {
                                 ui.horizontal(|ui| {
                                     ui.label("Power (");
                                     ui.colored_label(self.params[j].color, &self.params[j].name);
@@ -516,7 +581,7 @@ impl<const N: usize> App for Smarticles<N> {
                             }
                         });
                         ui.vertical(|ui| {
-                            for j in 0..N {
+                            for j in 0..self.type_count {
                                 ui.horizontal(|ui| {
                                     ui.label("Radius (");
                                     ui.colored_label(self.params[j].color, &self.params[j].name);
@@ -551,14 +616,15 @@ impl<const N: usize> App for Smarticles<N> {
                     .rect
                     .contains(ctx.input().pointer.interact_pos().unwrap_or_default())
                 {
-                    self.view.zoom += ctx.input().scroll_delta.y * 0.01;
+                    self.view.zoom += ctx.input().scroll_delta.y * ZOOM_FACTOR;
                 }
-                self.view.zoom = self.view.zoom.max(0.1);
+                // This is weird but look at the values.
+                self.view.zoom = self.view.zoom.min(MAX_ZOOM).max(MIN_ZOOM);
 
                 let mut min = resp.rect.min
                     + Vec2::new(
-                        (resp.rect.width() - self.world_w * self.view.zoom) / 2.0,
-                        (resp.rect.height() - self.world_h * self.view.zoom) / 2.0,
+                        (resp.rect.width() - self.world_w * self.view.zoom) / 2.,
+                        (resp.rect.height() - self.world_h * self.view.zoom) / 2.,
                     );
 
                 if let Some(interact_pos) = ctx.input().pointer.interact_pos() {
@@ -581,7 +647,7 @@ impl<const N: usize> App for Smarticles<N> {
 
                 min += self.view.pos.to_vec2() * self.view.zoom;
 
-                for i in 0..N {
+                for i in 0..self.type_count {
                     let p = &self.params[i];
                     let col: Color32 = p.color.into();
                     for dot in &self.dots[i] {
@@ -591,7 +657,7 @@ impl<const N: usize> App for Smarticles<N> {
                             && pos.y >= resp.rect.min.y
                             && pos.y <= resp.rect.max.y
                         {
-                            paint.circle_filled(pos, (PARTICLE_SIZE / 2.0) * self.view.zoom, col);
+                            paint.circle_filled(pos, (PARTICLE_SIZE / 2.) * self.view.zoom, col);
                         }
                     }
                 }

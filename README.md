@@ -1,4 +1,4 @@
-# Smarticles
+# Smarticles (fork)
 
 A Rust port of [Brainxyz's Artificial Life](https://www.youtube.com/watch?v=0Kx4Y9TVMGg)
 simulator with some fun features.
@@ -27,14 +27,14 @@ You can check your version of `cargo` in the command line:
 
 ```commandline
 cargo --version
-cargo 1.64.0-nightly (85b500cca 2022-07-24)
+cargo 1.75.0 (1d8b05cdd 2023-11-20)
 ```
 
 Once done, download or clone this repository to your preferred location and
 run the program using `cargo` like so:
 
 ```commandline
-cd ~/Rust/smarticles
+cd ~/path/to/smarticles-fork
 cargo run
 ```
 
