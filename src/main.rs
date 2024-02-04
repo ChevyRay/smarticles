@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use eframe::epaint::Color32;
 use eframe::{App, Frame, NativeOptions};
-use egui::plot::{Line, Plot, PlotPoints};
 use egui::{CentralPanel, Context, Pos2, Rgba, ScrollArea, Sense, SidePanel, Slider, Vec2};
 use rand::distributions::OpenClosed01;
 use rand::rngs::SmallRng;
@@ -58,7 +57,7 @@ const DEFAULT_DAMPING_FACTOR: f32 = 0.5;
 
 const DEFAULT_ZOOM: f32 = 1.;
 const MIN_ZOOM: f32 = 1.;
-const MAX_ZOOM: f32 = 6.;
+const MAX_ZOOM: f32 = 10.;
 const ZOOM_FACTOR: f32 = 0.02;
 
 fn main() {
@@ -515,19 +514,12 @@ impl App for Smarticles {
                 ));
                 let reset = ui.button("Reset");
                 if reset.clicked() {
-                    self.max_total_count = MAX_TOTAL_COUNT;
+                    self.max_total_count = DEFAULT_MAX_TOTAL_COUNT;
                 }
                 if max_total_count.changed() || reset.clicked() {
                     self.spawn();
                 }
             });
-
-            // TODO Add graph of number of computations per second
-            // ui.separator();
-
-            // Plot::new("test")
-            //     .view_aspect(4.0)
-            //     .show(ui, |plot_ui| plot_ui.line(line));
 
             ScrollArea::vertical().show(ui, |ui| {
                 for i in 0..self.type_count {
@@ -657,7 +649,11 @@ impl App for Smarticles {
                             && pos.y >= resp.rect.min.y
                             && pos.y <= resp.rect.max.y
                         {
-                            paint.circle_filled(pos, (PARTICLE_SIZE / 2.) * self.view.zoom, col);
+                            paint.circle_filled(
+                                pos,
+                                (PARTICLE_SIZE / 2.) * self.view.zoom.sqrt(),
+                                col,
+                            );
                         }
                     }
                 }
