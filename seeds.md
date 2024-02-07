@@ -17,3 +17,6 @@
 - `gau_reformat`
 - `coombes_embody`
 - `aristae_gloaming`
+- `pulvinar_paprica`
+- `chaining_smartass`: unusual structures forming. example: two circles, red and yellow, kind of rotating around each other in opposite ways, tried to reproduce but it seems to require a certain number of each particle.
+- `cinders_salite`

@@ -11,6 +11,17 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 
+// IDEA Add undo/redo feature or at least a seed history (only)
+// for the current session)
+
+// IDEA Add recordings ? By exporting positions of all the
+// particles each frame ? That would make around 8000 postions
+// every 1/60 second that is to say 60*8000=480,000 positions
+// per second, let's assume a position is 8 bytes (from Vec2),
+// then one second of simulation is 8*480,000=3,840,000 bytes
+// this is around 4MB. 1min of simulation is 60*4=240MB.
+// This seems possible, although not for long recordings.
+
 /// Tick per second: update rate of the simulation.
 const TPS: f32 = 1. / 90.;
 /// Frame per second: update rate of the UI.
@@ -22,7 +33,7 @@ const MIN_TYPES: usize = 3;
 const MAX_TYPES: usize = 8;
 
 /// Size of the particles in the simulation.
-const PARTICLE_SIZE: f32 = 1.5;
+const PARTICLE_SIZE: f32 = 2.;
 
 /// Default world width the simulation.
 const DEFAULT_WIDTH: f32 = DEFAULT_HEIGHT * 1.618;
@@ -597,7 +608,7 @@ impl App for Smarticles {
 
         CentralPanel::default()
             .frame(egui::Frame {
-                fill: Color32::from_rgba_unmultiplied(4, 4, 4, 255),
+                fill: Color32::from_rgba_unmultiplied(12, 12, 12, 255),
                 ..Default::default()
             })
             .show(ctx, |ui| {
