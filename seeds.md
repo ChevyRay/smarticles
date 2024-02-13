@@ -32,3 +32,6 @@
   - `bulbul_munchet`
   - `tideling_graved`
   - `ductless_marques`
+  - `underarm_luminary_paplike`
+  - `carved_calamar_bandage`
+  - `muscular_template_wiglet`

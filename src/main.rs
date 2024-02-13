@@ -60,7 +60,7 @@ const RANDOM_MIN_COUNT: usize = 50;
 /// Total minimum number of particles in the simulation.
 const MIN_TOTAL_COUNT: usize = RANDOM_MIN_COUNT * MAX_TYPES;
 /// Total maximum number of particles in the simulation.
-const MAX_TOTAL_COUNT: usize = 10000;
+const MAX_TOTAL_COUNT: usize = 12000;
 /// Default total maximum number of particles in the simulation.
 const DEFAULT_MAX_TOTAL_COUNT: usize = 8000;
 
@@ -100,6 +100,8 @@ fn main() {
         ("η", Rgba::from_srgba_unmultiplied(166, 0, 255, 255)),
         ("θ", Rgba::from_srgba_unmultiplied(247, 0, 243, 255)),
     ]);
+
+    // smarticles.
 
     eframe::run_native("Smarticles", options, Box::new(|_| Box::new(smarticles)));
 }
@@ -294,7 +296,7 @@ impl Smarticles {
                     for p2 in dots_clone[j].iter() {
                         let d = p1.pos - p2.pos;
                         let r = d.length();
-                        if r < self.params[i].radius[j] && r > 0.1 {
+                        if r < self.params[i].radius[j] && r > 0. {
                             f += d / r;
                         }
                     }
@@ -467,7 +469,8 @@ impl App for Smarticles {
                 if ui.button("Randomize").clicked() {
                     let w1 = rand::random::<usize>() % self.words.len();
                     let w2 = rand::random::<usize>() % self.words.len();
-                    self.seed = format!("{}_{}", self.words[w1], self.words[w2]);
+                    let w3 = rand::random::<usize>() % self.words.len();
+                    self.seed = format!("{}_{}_{}", self.words[w1], self.words[w2], self.words[w3]);
 
                     self.apply_seed();
                     self.history.add(self.seed.to_owned());
