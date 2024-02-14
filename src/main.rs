@@ -41,12 +41,11 @@ const MAX_TYPES: usize = 8;
 const PARTICLE_SIZE: f32 = 2.;
 
 /// Default world width the simulation.
-const DEFAULT_RADIUS: f32 = 1000.;
-
+const DEFAULT_WORLD_RADIUS: f32 = 1000.;
 /// Minimum world width the simulation.
 const MIN_WORLD_RADIUS: f32 = 200.;
 /// Maximum world width the simulation.
-const MAX_WORLD_RADIUS: f32 = DEFAULT_RADIUS * 1.5;
+const MAX_WORLD_RADIUS: f32 = DEFAULT_WORLD_RADIUS * 1.5;
 
 const DEFAULT_SPAWN_RADIUS: f32 = 20.;
 
@@ -207,17 +206,14 @@ impl Smarticles {
             })
             .collect();
 
-        let w1 = rand::random::<usize>() % words.len();
-        let w2 = rand::random::<usize>() % words.len();
-
         Self {
-            world_radius: DEFAULT_RADIUS,
+            world_radius: DEFAULT_WORLD_RADIUS,
 
             play: false,
             type_count: MAX_TYPES,
             max_total_count: DEFAULT_MAX_TOTAL_COUNT,
             speed_factor: DEFAULT_SPEED_FACTOR,
-            seed: format!("{}_{}", words[w1], words[w2]),
+            seed: "".to_string(),
             history: History::new(),
 
             params: types.map(|(name, color)| Params {
@@ -246,7 +242,7 @@ impl Smarticles {
     }
 
     fn restart(&mut self) {
-        self.world_radius = DEFAULT_RADIUS;
+        self.world_radius = DEFAULT_WORLD_RADIUS;
         // self.world_h = DEFAULT_HEIGHT;
         self.max_total_count = DEFAULT_MAX_TOTAL_COUNT;
         self.speed_factor = DEFAULT_SPEED_FACTOR;
@@ -411,7 +407,9 @@ impl Smarticles {
     }
 
     fn import(&mut self, mut bytes: &[u8]) {
-        self.world_radius = bytes.read_u16::<LE>().unwrap_or(DEFAULT_RADIUS as u16) as f32;
+        self.world_radius = bytes
+            .read_u16::<LE>()
+            .unwrap_or(DEFAULT_WORLD_RADIUS as u16) as f32;
         self.type_count = bytes.read_u8().unwrap_or(MAX_TYPES as u8) as usize;
         self.speed_factor = bytes
             .read_u16::<LE>()
@@ -512,7 +510,7 @@ impl App for Smarticles {
                 ));
                 let reset = ui.button("Reset");
                 if reset.clicked() {
-                    self.world_radius = DEFAULT_RADIUS;
+                    self.world_radius = DEFAULT_WORLD_RADIUS;
                 }
                 if world_radius.changed() || reset.clicked() {
                     self.seed = self.export();
