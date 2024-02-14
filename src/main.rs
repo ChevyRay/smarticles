@@ -13,9 +13,6 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 
-// IDEA Add undo/redo feature or at least a seed history (only)
-// for the current session)
-
 // IDEA Add recordings ? By exporting positions of all the
 // particles each frame ? That would make around 8000 postions
 // every 1/60 second that is to say 60*8000=480,000 positions
@@ -63,11 +60,19 @@ const MAX_TOTAL_COUNT: usize = 12000;
 /// Default total maximum number of particles in the simulation.
 const DEFAULT_MAX_TOTAL_COUNT: usize = 8000;
 
-const MAX_POWER: f32 = 50.;
+const MAX_POWER: f32 = 100.;
 const MIN_POWER: f32 = -MAX_POWER;
+/// Scales power.
+const POWER_FACTOR: f32 = 1. / 500.;
 
-const MIN_RADIUS: f32 = 10.;
+const MIN_RADIUS: f32 = 5.;
 const MAX_RADIUS: f32 = 100.;
+/// Below this radius, particles repel each other (see [`get_dv`]).
+const MID_RADIUS: f32 = 40.;
+/// The power with which the particles repel each other when
+/// below [`MIN_RADIUS`]. It is scaled depending on the distance
+/// between particles (see [`get_dv`]).
+const CLOSE_POWER: f32 = 20.;
 
 const DEFAULT_SPEED_FACTOR: f32 = 40.;
 const MIN_SPEED_FACTOR: f32 = 2.;
@@ -274,8 +279,6 @@ impl Smarticles {
                         + Vec2::angled(TAU * rand.sample::<f32, _>(OpenClosed01))
                             * DEFAULT_SPAWN_RADIUS
                             * rand.sample::<f32, _>(OpenClosed01),
-                    // self.world_w * rand.sample::<f32, _>(OpenClosed01),
-                    // self.world_h * rand.sample::<f32, _>(OpenClosed01),
                     vel: Vec2::ZERO,
                 });
             }
@@ -286,18 +289,14 @@ impl Smarticles {
         let dots_clone = self.dots.to_owned();
         for i in 0..self.type_count {
             for j in 0..self.type_count {
-                let g = -self.params[i].power[j] / 100.;
+                let g = -self.params[i].power[j] * POWER_FACTOR;
                 self.dots[i].par_iter_mut().for_each(|p1| {
-                    let mut f = Vec2::ZERO;
+                    let mut v = Vec2::ZERO;
                     for p2 in dots_clone[j].iter() {
-                        let d = p1.pos - p2.pos;
-                        let r = d.length();
-                        if r < self.params[i].radius[j] && r > 0. {
-                            f += d / r;
-                        }
+                        v += get_dv(p2.pos - p1.pos, self.params[i].radius[j], g);
                     }
 
-                    p1.vel = (p1.vel + f * g) * DEFAULT_DAMPING_FACTOR;
+                    p1.vel = (p1.vel + v) * DEFAULT_DAMPING_FACTOR;
                     p1.pos += p1.vel * self.speed_factor * dt;
 
                     let d = (Vec2::new(self.world_radius, self.world_radius)) - p1.pos;
@@ -427,6 +426,17 @@ impl Smarticles {
                 *r = bytes.read_u16::<LE>().unwrap_or(0) as f32;
             }
         }
+    }
+}
+
+fn get_dv(distance: Vec2, action_radius: f32, power: f32) -> Vec2 {
+    match distance.length() {
+        r if r < action_radius && r > MID_RADIUS => distance / r * power,
+        r if r < MID_RADIUS && r > 0. => {
+            distance / r * (((CLOSE_POWER / MID_RADIUS) * r - CLOSE_POWER) * POWER_FACTOR)
+        }
+        // r if r < 50. && r > 0. => distance.normalized() * (50. - r),
+        _ => return Vec2::ZERO,
     }
 }
 

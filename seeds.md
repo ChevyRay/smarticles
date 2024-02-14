@@ -27,7 +27,7 @@
   - `shmo_obtainal`
   - `shoes_viagram`
   - `mischose_lockrum`
-  - `risuses_picucule`: kind of "animal" that seeks yellow particle balls.
+  - `risuses_picucule`: kind of organism that seeks yellow particle balls.
   - `sanicles_politei`
   - `bulbul_munchet`
   - `tideling_graved`
@@ -40,3 +40,8 @@
   - `corcle_crinid_crepitus`
   - `virtuosa_ensconce_upheaps`
   - `reinters_gymnic_eructing`
+- Added after `0.1.2`
+  - `disbowel_decor_bingo`
+  - `zeks_oriels_yucch`: geometrical pattern ?
+  - `outlaugh_chubasco_joulean`: big moving organism
+  - `chlorize_adaxial_gaiting`
