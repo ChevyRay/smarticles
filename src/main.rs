@@ -60,11 +60,13 @@ const MAX_TOTAL_COUNT: usize = 12000;
 /// Default total maximum number of particles in the simulation.
 const DEFAULT_MAX_TOTAL_COUNT: usize = 8000;
 
+const DEFAULT_POWER: f32 = 0.;
 const MAX_POWER: f32 = 100.;
 const MIN_POWER: f32 = -MAX_POWER;
 /// Scales power.
 const POWER_FACTOR: f32 = 1. / 500.;
 
+const DEFAULT_RADIUS: f32 = 80.;
 const MIN_RADIUS: f32 = 5.;
 const MAX_RADIUS: f32 = 100.;
 /// Below this radius, particles repel each other (see [`get_dv`]).
@@ -226,8 +228,8 @@ impl Smarticles {
                 heading: "Type ".to_string() + &name.to_string(),
                 color,
                 count: 0,
-                power: [0.; MAX_TYPES],
-                radius: [MIN_RADIUS; MAX_TYPES],
+                power: [DEFAULT_POWER; MAX_TYPES],
+                radius: [DEFAULT_RADIUS; MAX_TYPES],
             }),
             dots: std::array::from_fn(|_| Vec::new()),
             prev_time: Instant::now(),
@@ -254,8 +256,8 @@ impl Smarticles {
         self.view = View::DEFAULT;
         for p in &mut self.params {
             p.count = 0;
-            p.radius.iter_mut().for_each(|r| *r = 0.);
-            p.power.iter_mut().for_each(|p| *p = 0.);
+            p.radius.iter_mut().for_each(|r| *r = DEFAULT_RADIUS);
+            p.power.iter_mut().for_each(|p| *p = DEFAULT_POWER);
         }
         self.clear();
     }
