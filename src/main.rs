@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use eframe::epaint::Color32;
 use eframe::{App, Frame, NativeOptions};
+use egui::plot::{Line, Plot, PlotPoints};
 use egui::{CentralPanel, Context, Pos2, Rgba, ScrollArea, Sense, SidePanel, Slider, Stroke, Vec2};
 use rand::distributions::OpenClosed01;
 use rand::rngs::SmallRng;
@@ -24,10 +25,11 @@ use rayon::prelude::*;
 // if the simulation runs for too long there might be differences
 // between computers.
 
-/// Tick per second: update rate of the simulation.
-const TPS: f32 = 1. / 90.;
-/// Frame per second: update rate of the UI.
-const FPS: f32 = 1. / 60.;
+/// Maximum update rate of the simulation (limited by the
+/// eframe default update rate which is 60 fps). Set this to
+/// reduce the amount of calculations per second. Note: this
+/// reduces the simulation accuracy...
+const MAX_UPDATE_RATE: Option<f32> = Some(1. / 50.); // Some(1. / 50.);
 
 /// Minimum number of particle types in the simulation.
 const MIN_TYPES: usize = 3;
@@ -67,14 +69,49 @@ const MIN_POWER: f32 = -MAX_POWER;
 const POWER_FACTOR: f32 = 1. / 500.;
 
 const DEFAULT_RADIUS: f32 = 80.;
-const MIN_RADIUS: f32 = 5.;
+const MIN_RADIUS: f32 = RAMP_START_RADIUS;
 const MAX_RADIUS: f32 = 100.;
+
 /// Below this radius, particles repel each other (see [`get_dv`]).
-const MID_RADIUS: f32 = 40.;
+const RAMP_START_RADIUS: f32 = 30.;
 /// The power with which the particles repel each other when
 /// below [`MIN_RADIUS`]. It is scaled depending on the distance
-/// between particles (see [`get_dv`]).
-const CLOSE_POWER: f32 = 20.;
+/// between particles (see [`get_dv`] second arm).
+/// The radius where the power ramp ends (see [`get_dv`] first arm).
+const RAMP_END_RADIUS: f32 = 10.;
+/// "Close power", see graph below.
+const CLOSE_POWER: f32 = 20. * POWER_FACTOR;
+
+// I made a graph of the power with respect to the radius
+// in order to explain the above constants (it might not help at all):
+//
+//
+//                   power ^
+//                         |
+//                         |
+//  power of the particle  | . . . . . . . . . . . . . . . . . . . . ./-----------------------
+//  (changing)             |                                        /-.
+//                         |                                      /-  .
+//                         |                                    /-    .
+//                         |                                 /--      .
+//                         |                               /-         .
+//                         |                             /-           .
+//                         |                           /-             .
+//                         |                         /-               .
+//                         |------------------------------------------------------------------>  radius (r)
+//                         |                 ----/  ^                 ^
+//                         |            ----/       |                 |
+//                         |       ----/            |                 |
+//                         |  ----/         RAMP_START_RADIUS     RAMP_START_RADIUS + RAMP_END_RADIUS
+//            CLOSE_POWER  |-/
+//                         |
+//                         |
+//                         |
+//                         |
+//
+
+const BORDER_DISTANCE: f32 = 100.;
+const BORDER_CLOSE_POWER: f32 = 100. * POWER_FACTOR;
 
 const DEFAULT_SPEED_FACTOR: f32 = 40.;
 const MIN_SPEED_FACTOR: f32 = 2.;
@@ -121,11 +158,10 @@ struct Smarticles {
     speed_factor: f32,
     seed: String,
     history: History,
-
+    selected_param: (usize, usize),
     params: [Params; MAX_TYPES],
     dots: [Vec<Dot>; MAX_TYPES],
     prev_time: Instant,
-    prev_frame_time: Instant,
     view: View,
     words: Vec<String>,
 }
@@ -222,7 +258,7 @@ impl Smarticles {
             speed_factor: DEFAULT_SPEED_FACTOR,
             seed: "".to_string(),
             history: History::new(),
-
+            selected_param: (0, 0),
             params: types.map(|(name, color)| Params {
                 name: name.to_string(),
                 heading: "Type ".to_string() + &name.to_string(),
@@ -233,7 +269,6 @@ impl Smarticles {
             }),
             dots: std::array::from_fn(|_| Vec::new()),
             prev_time: Instant::now(),
-            prev_frame_time: Instant::now(),
             view: View::DEFAULT,
             words,
         }
@@ -250,7 +285,6 @@ impl Smarticles {
 
     fn restart(&mut self) {
         self.world_radius = DEFAULT_WORLD_RADIUS;
-        // self.world_h = DEFAULT_HEIGHT;
         self.max_total_count = DEFAULT_MAX_TOTAL_COUNT;
         self.speed_factor = DEFAULT_SPEED_FACTOR;
         self.view = View::DEFAULT;
@@ -298,54 +332,17 @@ impl Smarticles {
                         v += get_dv(p2.pos - p1.pos, self.params[i].radius[j], g);
                     }
 
+                    let d = Vec2::new(self.world_radius, self.world_radius) - p1.pos;
+                    let r = self.world_radius - d.length();
+                    if r <= 120. {
+                        v += -(d / r) * BORDER_CLOSE_POWER * ((r / BORDER_DISTANCE) - 1.);
+                    }
+
                     p1.vel = (p1.vel + v) * DEFAULT_DAMPING_FACTOR;
                     p1.pos += p1.vel * self.speed_factor * dt;
-
-                    let d = (Vec2::new(self.world_radius, self.world_radius)) - p1.pos;
-                    if d.length() >= self.world_radius {
-                        p1.pos = Vec2::new(self.world_radius, self.world_radius)
-                            - d.normalized() * self.world_radius;
-                        p1.vel = d.normalized() * 10.;
-                    }
                 });
             }
         }
-
-        // previous
-        // if p1.pos.x < 0. {
-        //     p1.pos.x = 0.;
-        //     p1.vel.x = 10.;
-        // } else if p1.pos.x >= world_w {
-        //     p1.pos.x = world_w;
-        //     p1.vel.x = -10.;
-        // }
-        // if p1.pos.y < 0. {
-        //     p1.pos.y = 0.;
-        //     p1.vel.y = 10.;
-        // } else if p1.pos.y >= world_h {
-        //     p1.pos.y = world_h;
-        //     p1.vel.y = -10.;
-        // }
-
-        // previous previous
-        // if (p1.pos.x < 10. && p1.vel.x < 0.) || (p1.pos.x > world_w - 10. && p1.vel.x > 0.) {
-        //     p1.vel.x *= -8.;
-        // }
-        // if (p1.pos.y < 10. && p1.vel.y < 0.) || (p1.pos.y > world_h - 10. && p1.vel.y > 0.) {
-        //     p1.vel.y *= -8.;
-        // }
-
-        // previous previous alternative: wrap
-        // if p1.pos.x < 0. {
-        //     p1.pos.x += world_w;
-        // } else if p1.pos.x >= world_w {
-        //     p1.pos.x -= world_w;
-        // }
-        // if p1.pos.y < 0. {
-        //     p1.pos.y += world_h;
-        // } else if p1.pos.y >= world_h {
-        //     p1.pos.y -= world_h;
-        // }
     }
 
     fn apply_seed(&mut self) {
@@ -392,15 +389,15 @@ impl Smarticles {
         bytes.write_u16::<LE>(self.world_radius as u16).unwrap();
         bytes.write_u8(self.type_count as u8).unwrap();
         bytes.write_u16::<LE>(self.speed_factor as u16).unwrap();
-        for p in &self.params {
-            bytes.write_u8((p.color.r() * 255.) as u8).unwrap();
-            bytes.write_u8((p.color.g() * 255.) as u8).unwrap();
-            bytes.write_u8((p.color.b() * 255.) as u8).unwrap();
-            bytes.write_u16::<LE>(p.count as u16).unwrap();
-            for &p in &p.power {
-                bytes.write_i8(p as i8).unwrap();
+        for param in &self.params {
+            bytes.write_u8((param.color.r() * 255.) as u8).unwrap();
+            bytes.write_u8((param.color.g() * 255.) as u8).unwrap();
+            bytes.write_u8((param.color.b() * 255.) as u8).unwrap();
+            bytes.write_u16::<LE>(param.count as u16).unwrap();
+            for &power in &param.power {
+                bytes.write_i8(power as i8).unwrap();
             }
-            for &r in &p.radius {
+            for &r in &param.radius {
                 bytes.write_u16::<LE>(r as u16).unwrap();
             }
         }
@@ -433,13 +430,24 @@ impl Smarticles {
 
 fn get_dv(distance: Vec2, action_radius: f32, power: f32) -> Vec2 {
     match distance.length() {
-        r if r < action_radius && r > MID_RADIUS => distance / r * power,
-        r if r < MID_RADIUS && r > 0. => {
-            distance / r * (((CLOSE_POWER / MID_RADIUS) * r - CLOSE_POWER) * POWER_FACTOR)
+        r if r < action_radius && r > RAMP_START_RADIUS => {
+            (distance / r) * power * ramp_then_const(r, RAMP_START_RADIUS, RAMP_END_RADIUS)
         }
-        // r if r < 50. && r > 0. => distance.normalized() * (50. - r),
-        _ => return Vec2::ZERO,
+        r if r < RAMP_START_RADIUS && r > 0. => {
+            (distance / r) * CLOSE_POWER * simple_ramp(r, RAMP_START_RADIUS)
+        }
+        _ => Vec2::ZERO,
     }
+}
+
+#[inline]
+fn simple_ramp(x: f32, y_intercept: f32) -> f32 {
+    (x / y_intercept) - 1.
+}
+#[inline]
+fn ramp_then_const(x: f32, zero: f32, const_start: f32) -> f32 {
+    // value of const: 2. * const_start / (zero + const_start)
+    (-(x - zero - const_start).abs() + x - zero + const_start) / (zero + const_start)
 }
 
 impl App for Smarticles {
@@ -447,17 +455,15 @@ impl App for Smarticles {
         if self.play {
             let time = Instant::now();
             let dt = time - self.prev_time;
-            if dt > Duration::from_secs_f32(TPS) {
+            if let Some(tps) = MAX_UPDATE_RATE {
+                if dt > Duration::from_secs_f32(tps) {
+                    self.simulate(dt.as_secs_f32());
+                    self.prev_time = time;
+                }
+            } else {
                 self.simulate(dt.as_secs_f32());
                 self.prev_time = time;
             }
-        }
-
-        let frame_time = Instant::now();
-        let dt = frame_time - self.prev_frame_time;
-        if dt > Duration::from_secs_f32(FPS) {
-            ctx.request_repaint();
-            self.prev_frame_time = frame_time;
         }
 
         SidePanel::left("settings").show(ctx, |ui| {
@@ -529,18 +535,7 @@ impl App for Smarticles {
                     self.spawn();
                 }
             });
-            // ui.horizontal(|ui| {
-            //     ui.label("World Height:");
-            //     let world_h = ui.add(Slider::new(&mut self.world_h, MIN_WORLD_H..=MAX_WORLD_H));
-            //     let reset = ui.button("Reset");
-            //     if reset.clicked() {
-            //         self.world_h = DEFAULT_HEIGHT;
-            //     }
-            //     if world_h.changed() || reset.clicked() {
-            //         self.seed = self.export();
-            //         self.spawn();
-            //     }
-            // });
+
             ui.horizontal(|ui| {
                 ui.label("Speed Factor:");
                 let speed_factor = ui.add(Slider::new(
@@ -580,6 +575,28 @@ impl App for Smarticles {
                 if max_total_count.changed() || reset.clicked() {
                     self.spawn();
                 }
+            });
+
+            ui.horizontal(|ui| {
+                let points: PlotPoints = (0..1000)
+                    .map(|i| {
+                        let x = i as f32 * 0.1;
+                        [
+                            x as f64,
+                            get_dv(
+                                Vec2::new(x, 0.),
+                                self.params[self.selected_param.0].radius[self.selected_param.1],
+                                self.params[self.selected_param.0].power[self.selected_param.1]
+                                    * POWER_FACTOR,
+                            )
+                            .x as f64,
+                        ]
+                    })
+                    .collect();
+                let line = Line::new(points);
+                Plot::new("activation function")
+                    .view_aspect(2.0)
+                    .show(ui, |plot_ui| plot_ui.line(line));
             });
 
             ScrollArea::vertical().show(ui, |ui| {
@@ -628,6 +645,7 @@ impl App for Smarticles {
                                         ))
                                         .changed()
                                     {
+                                        self.selected_param = (i, j);
                                         self.seed = self.export();
                                     }
                                 });
@@ -646,6 +664,7 @@ impl App for Smarticles {
                                         ))
                                         .changed()
                                     {
+                                        self.selected_param = (i, j);
                                         self.seed = self.export();
                                     }
                                 });
@@ -724,5 +743,7 @@ impl App for Smarticles {
                     }
                 }
             });
+
+        ctx.request_repaint();
     }
 }
