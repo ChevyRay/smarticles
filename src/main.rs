@@ -51,13 +51,17 @@ const MAX_WORLD_RADIUS: f32 = DEFAULT_WORLD_RADIUS * 1.5;
 const SPAWN_AREA_RADIUS: f32 = 40.;
 
 /// Min particle count.
-const MIN_COUNT: usize = 0;
-/// When randomizing particle counts, this is the lowest
-/// value possible, this prevent particle counts from being
-/// under this value.
-const RANDOM_MIN_PARTICLE_COUNT: usize = 50;
+const MIN_PARTICLE_COUNT: usize = 0;
 /// Maximal particle count per class.
-const MAX_PARTICLE_COUNT: usize = 800;
+const MAX_PARTICLE_COUNT: usize = 1200;
+/// When randomizing particle counts, this is the lowest
+/// possible value, this prevent random particle counts from
+/// being under this value.
+const RANDOM_MIN_PARTICLE_COUNT: usize = 100;
+/// When randomizing particle counts, this is the highest
+/// possible value, this prevent random particle counts from
+/// being above this value.
+const RANDOM_MAX_PARTICLE_COUNT: usize = 1000;
 
 const DEFAULT_POWER: f32 = 0.;
 const MAX_POWER: f32 = 100.;
@@ -102,30 +106,6 @@ const CLOSE_POWER: f32 = 20. * POWER_FACTOR;
 //                         |  ----/         RAMP_START_RADIUS     RAMP_START_RADIUS + RAMP_END_RADIUS
 //            CLOSE_POWER  |-/
 //                         |
-//                         |
-//                         |
-//                         |
-//
-
-//
-//                   power ^
-//                         |
-//                         |
-//  power of the particle  | . . . . . . . . . . . .------------------------
-//  (from param matrix)    |                        .                      .
-//                         |                        .                      .
-//                         |                        .                      .
-//                         |                        .                      .
-//                         |                        .                      .
-//                         |                        .                      .
-//                         |                        .                      .
-//                         |                        .                      .
-//                         |-------------------------------------------------------->  radius (r)
-//                         |                 ----/  ^                      ^
-//                         |            ----/       |                      |
-//                         |       ----/            |                      |
-//                         |  ----/                 RAMP_START_RADIUS      radius (from param matrix)
-//            CLOSE_POWER  |-/
 //                         |
 //                         |
 //                         |
@@ -301,25 +281,36 @@ impl Smarticles {
                 let power = -param.power * POWER_FACTOR;
                 let radius = param.radius;
 
-                for p1 in 0..self.classes[c1].particle_count {
-                    let mut v = Vec2::ZERO;
+                (0..self.classes[c1].particle_count)
+                    .into_par_iter()
+                    .map(|p1| {
+                        let mut v = Vec2::ZERO;
 
-                    let a = &self.particles[(c1, p1)];
-                    for p2 in 0..self.classes[c2].particle_count {
-                        let b = &self.particles[(c2, p2)];
-                        v += get_dv(b.pos - a.pos, radius, power);
-                    }
+                        let mut a = self.particles[(c1, p1)];
+                        for p2 in 0..self.classes[c2].particle_count {
+                            let b = &self.particles[(c2, p2)];
+                            v += get_dv(b.pos - a.pos, radius, power);
+                        }
 
-                    let d = -a.pos;
-                    let r = self.world_radius - d.length();
-                    if r <= 120. {
-                        v += -(d / r) * BORDER_CLOSE_POWER * ((r / BORDER_DISTANCE) - 1.);
-                    }
+                        let d = -a.pos;
+                        let r = self.world_radius - d.length();
+                        // TODO Improve this
+                        if r <= 120. {
+                            v +=
+                                -d.normalized() * BORDER_CLOSE_POWER * ((r / BORDER_DISTANCE) - 1.);
+                        }
 
-                    let a = &mut self.particles[(c1, p1)];
-                    a.vel = (a.vel + v) * DEFAULT_DAMPING_FACTOR;
-                    a.pos += a.vel * self.speed_factor * dt;
-                }
+                        a.vel = (a.vel + v) * DEFAULT_DAMPING_FACTOR;
+                        a.pos += a.vel * self.speed_factor * dt;
+
+                        a
+                    })
+                    .collect::<Vec<Particle>>()
+                    .iter()
+                    .enumerate()
+                    .for_each(|(p1, particle)| {
+                        self.particles[(c1, p1)] = *particle;
+                    });
             }
         }
     }
@@ -346,8 +337,10 @@ impl Smarticles {
         const RAD_F: f32 = 1.1;
 
         for i in 0..self.class_count {
-            self.classes[i].particle_count =
-                rand(RANDOM_MIN_PARTICLE_COUNT as f32, MAX_PARTICLE_COUNT as f32) as usize;
+            self.classes[i].particle_count = rand(
+                RANDOM_MIN_PARTICLE_COUNT as f32,
+                RANDOM_MAX_PARTICLE_COUNT as f32,
+            ) as usize;
             for j in 0..self.class_count {
                 let pow = rand(MIN_POWER, MAX_POWER);
                 self.param_matrix[(i, j)].power = pow.signum() * pow.abs().powf(1. / POW_F);
@@ -576,7 +569,7 @@ impl App for Smarticles {
                         if ui
                             .add(Slider::new(
                                 &mut self.classes[i].particle_count,
-                                MIN_COUNT..=MAX_PARTICLE_COUNT,
+                                MIN_PARTICLE_COUNT..=MAX_PARTICLE_COUNT,
                             ))
                             .changed()
                         {
@@ -781,14 +774,6 @@ impl Default for Particle {
 }
 
 fn get_dv(distance: Vec2, action_radius: f32, power: f32) -> Vec2 {
-    // match distance.length() {
-    //     r if r < action_radius && r > RAMP_START_RADIUS => distance.normalized() * power,
-    //     r if r <= RAMP_START_RADIUS && r > 0. => {
-    //         distance.normalized() * CLOSE_POWER * simple_ramp(r, RAMP_START_RADIUS)
-    //     }
-    //     _ => Vec2::ZERO,
-    // }
-
     match distance.length() {
         r if r < action_radius && r > RAMP_START_RADIUS => {
             (distance / r) * power * ramp_then_const(r, RAMP_START_RADIUS, RAMP_END_RADIUS)

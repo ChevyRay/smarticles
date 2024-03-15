@@ -43,14 +43,14 @@
 - Added after `0.1.2`
   - `disbowel_decor_bingo`
   - `zeks_oriels_yucch`: geometrical pattern ?
-  - `outlaugh_chubasco_joulean`: big moving organism
+  - `outlaugh_chubasco_joulean`: big moving organism.
   - `chlorize_adaxial_gaiting`
-  - `@6AMEKAD/AAD0AQrsAAAAAAAAUABQAFAAUABQAFAAUABQAP9CAJABAArsAAAAAABQAFAAUABQAFAAUABQAFAAwP8A9AEAAArsAAAAAFAAUABQAFAAUABQAFAAUAAO/wBYAgoAAOwAAAAAUABQAFAAUABQAFAAUABQAADt/wAAAAAAAAAAAABQAFAAUABQAFAAUABQAFAABQv/AAAAAAAAAAAAAFAAUABQAFAAUABQAFAAUABhAP8AAAAAAAAAAAAAUABQAFAAUABQAFAAUABQAO0A5AAAAAAAAAAAAABQAFAAUABQAFAAUABQAFAA`: simple creature
+  - `@6AMEKAD/AAD0AQrsAAAAAAAAUABQAFAAUABQAFAAUABQAP9CAJABAArsAAAAAABQAFAAUABQAFAAUABQAFAAwP8A9AEAAArsAAAAAFAAUABQAFAAUABQAFAAUAAO/wBYAgoAAOwAAAAAUABQAFAAUABQAFAAUABQAADt/wAAAAAAAAAAAABQAFAAUABQAFAAUABQAFAABQv/AAAAAAAAAAAAAFAAUABQAFAAUABQAFAAUABhAP8AAAAAAAAAAAAAUABQAFAAUABQAFAAUABQAO0A5AAAAAAAAAAAAABQAFAAUABQAFAAUABQAFAA`: simple creature.
   - `grape_soushy_korakan`
   - `scalado_couter_poldavy`
   - `wagbeard_chacoli_overhusk`
   - `consulta_segueing_errorist`
-  - `gata_perfay_acounter`: beautiful
+  - `gata_perfay_acounter`: beautiful.
   - `lactify_fiberous_otiant`
   - `mown_zibeth_killadar`
   - `caulk_mavin_smews`
@@ -68,3 +68,4 @@
   - `palpifer_evermore_morphgan`
   - `kakas_afteroar_bhuts`
   - `misogyne_sengi_depthen`
+  - `anthrone_garle_grunt`: asymetrical moving cell.
