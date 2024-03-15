@@ -4,12 +4,13 @@ use std::f32::consts::TAU;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 
+use array2d::Array2D;
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use eframe::epaint::Color32;
 use eframe::{App, Frame, NativeOptions};
 use egui::plot::{Line, Plot, PlotPoints};
 use egui::{CentralPanel, Context, Pos2, Rgba, ScrollArea, Sense, SidePanel, Slider, Stroke, Vec2};
-use rand::distributions::OpenClosed01;
+use rand::distributions::Open01;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
@@ -25,42 +26,38 @@ use rayon::prelude::*;
 // if the simulation runs for too long there might be differences
 // between computers.
 
-/// Maximum update rate of the simulation (limited by the
+/// Max update rate of the simulation (limited by the
 /// eframe default update rate which is 60 fps). Set this to
 /// reduce the amount of calculations per second. Note: this
 /// reduces the simulation accuracy...
-const MAX_UPDATE_RATE: Option<f32> = Some(1. / 50.); // Some(1. / 50.);
+const MAX_UPDATE_RATE: Option<f32> = None; // Some(1. / 50.);
 
-/// Minimum number of particle types in the simulation.
-const MIN_TYPES: usize = 3;
-/// Maximum number of particle types in the simulation.
-const MAX_TYPES: usize = 8;
+/// Min number of particle classes in the simulation.
+const MIN_CLASSES: usize = 3;
+/// Max number of particle classes in the simulation.
+const MAX_CLASSES: usize = 8;
 
 /// Size of the particles in the simulation.
 const PARTICLE_SIZE: f32 = 2.;
 
 /// Default world width the simulation.
 const DEFAULT_WORLD_RADIUS: f32 = 1000.;
-/// Minimum world width the simulation.
+/// Min world width the simulation.
 const MIN_WORLD_RADIUS: f32 = 200.;
-/// Maximum world width the simulation.
+/// Max world width the simulation.
 const MAX_WORLD_RADIUS: f32 = DEFAULT_WORLD_RADIUS * 1.5;
 
-const DEFAULT_SPAWN_RADIUS: f32 = 20.;
+/// Radius of the spawn area.
+const SPAWN_AREA_RADIUS: f32 = 40.;
 
-/// Minimum particle count.
+/// Min particle count.
 const MIN_COUNT: usize = 0;
 /// When randomizing particle counts, this is the lowest
 /// value possible, this prevent particle counts from being
 /// under this value.
-const RANDOM_MIN_COUNT: usize = 50;
-
-/// Total minimum number of particles in the simulation.
-const MIN_TOTAL_COUNT: usize = RANDOM_MIN_COUNT * MAX_TYPES;
-/// Total maximum number of particles in the simulation.
-const MAX_TOTAL_COUNT: usize = 12000;
-/// Default total maximum number of particles in the simulation.
-const DEFAULT_MAX_TOTAL_COUNT: usize = 8000;
+const RANDOM_MIN_PARTICLE_COUNT: usize = 50;
+/// Maximal particle count per class.
+const MAX_PARTICLE_COUNT: usize = 800;
 
 const DEFAULT_POWER: f32 = 0.;
 const MAX_POWER: f32 = 100.;
@@ -110,6 +107,30 @@ const CLOSE_POWER: f32 = 20. * POWER_FACTOR;
 //                         |
 //
 
+//
+//                   power ^
+//                         |
+//                         |
+//  power of the particle  | . . . . . . . . . . . .------------------------
+//  (from param matrix)    |                        .                      .
+//                         |                        .                      .
+//                         |                        .                      .
+//                         |                        .                      .
+//                         |                        .                      .
+//                         |                        .                      .
+//                         |                        .                      .
+//                         |                        .                      .
+//                         |-------------------------------------------------------->  radius (r)
+//                         |                 ----/  ^                      ^
+//                         |            ----/       |                      |
+//                         |       ----/            |                      |
+//                         |  ----/                 RAMP_START_RADIUS      radius (from param matrix)
+//            CLOSE_POWER  |-/
+//                         |
+//                         |
+//                         |
+//
+
 const BORDER_DISTANCE: f32 = 100.;
 const BORDER_CLOSE_POWER: f32 = 100. * POWER_FACTOR;
 
@@ -153,83 +174,29 @@ struct Smarticles {
     world_radius: f32,
 
     play: bool,
-    type_count: usize,
-    max_total_count: usize,
+    class_count: usize,
     speed_factor: f32,
     seed: String,
-    history: History,
-    selected_param: (usize, usize),
-    params: [Params; MAX_TYPES],
-    dots: [Vec<Dot>; MAX_TYPES],
+
+    classes: [ClassProps; MAX_CLASSES],
+    /// The particle matrix: the first index is the class index
+    /// `c` and the second is the particle index `p`. The `p`th
+    /// particle of the `c`th class has index `(c, p)` in the matrix.
+    particles: Array2D<Particle>,
+    /// Matrix containing power and radius for each particle class
+    /// with respect to each other.
+    param_matrix: Array2D<Param>,
+
     prev_time: Instant,
     view: View,
+    selected_param: (usize, usize),
+
+    history: History,
     words: Vec<String>,
 }
 
-struct View {
-    zoom: f32,
-    pos: Pos2,
-    dragging: bool,
-    drag_start_pos: Pos2,
-    drag_start_view_pos: Pos2,
-}
-
-impl View {
-    const DEFAULT: View = Self {
-        zoom: DEFAULT_ZOOM,
-        pos: Pos2::ZERO,
-        dragging: false,
-        drag_start_pos: Pos2::ZERO,
-        drag_start_view_pos: Pos2::ZERO,
-    };
-}
-
-struct Params {
-    name: String,
-    heading: String,
-    color: Rgba,
-    count: usize,
-    power: [f32; MAX_TYPES],
-    radius: [f32; MAX_TYPES],
-}
-
-struct History {
-    values: [String; HISTORY_LENGTH],
-    current: usize,
-}
-
-impl History {
-    pub fn new() -> Self {
-        Self {
-            values: array::from_fn(|_| String::new()),
-            current: 0,
-        }
-    }
-
-    pub fn add<S>(&mut self, value: S)
-    where
-        S: ToString,
-    {
-        self.current = (self.current + 1) % HISTORY_LENGTH;
-        self.values[self.current] = value.to_string();
-    }
-
-    pub fn prev(&mut self) -> String {
-        if self.current != 0 {
-            self.current -= 1;
-        }
-        self.values[self.current].to_owned()
-    }
-}
-
-#[derive(Clone, Copy)]
-struct Dot {
-    pos: Vec2,
-    vel: Vec2,
-}
-
 impl Smarticles {
-    fn new<S>(types: [(S, Rgba); MAX_TYPES]) -> Self
+    fn new<S>(classes: [(S, Rgba); MAX_CLASSES]) -> Self
     where
         S: ToString,
     {
@@ -253,23 +220,28 @@ impl Smarticles {
             world_radius: DEFAULT_WORLD_RADIUS,
 
             play: false,
-            type_count: MAX_TYPES,
-            max_total_count: DEFAULT_MAX_TOTAL_COUNT,
+            class_count: MAX_CLASSES,
             speed_factor: DEFAULT_SPEED_FACTOR,
             seed: "".to_string(),
-            history: History::new(),
-            selected_param: (0, 0),
-            params: types.map(|(name, color)| Params {
+
+            classes: classes.map(|(name, color)| ClassProps {
                 name: name.to_string(),
-                heading: "Type ".to_string() + &name.to_string(),
+                heading: "Class ".to_string() + &name.to_string(),
                 color,
-                count: 0,
-                power: [DEFAULT_POWER; MAX_TYPES],
-                radius: [DEFAULT_RADIUS; MAX_TYPES],
+                particle_count: 0,
             }),
-            dots: std::array::from_fn(|_| Vec::new()),
+            particles: Array2D::filled_with(Particle::default(), MAX_CLASSES, MAX_PARTICLE_COUNT),
+            param_matrix: Array2D::filled_with(
+                Param::new(DEFAULT_POWER, DEFAULT_RADIUS),
+                MAX_CLASSES,
+                MAX_CLASSES,
+            ),
+
             prev_time: Instant::now(),
             view: View::DEFAULT,
+            selected_param: (0, 0),
+
+            history: History::new(),
             words,
         }
     }
@@ -283,70 +255,80 @@ impl Smarticles {
         self.play = false;
     }
 
-    fn restart(&mut self) {
+    fn reset(&mut self) {
         self.world_radius = DEFAULT_WORLD_RADIUS;
-        self.max_total_count = DEFAULT_MAX_TOTAL_COUNT;
         self.speed_factor = DEFAULT_SPEED_FACTOR;
         self.view = View::DEFAULT;
-        for p in &mut self.params {
-            p.count = 0;
-            p.radius.iter_mut().for_each(|r| *r = DEFAULT_RADIUS);
-            p.power.iter_mut().for_each(|p| *p = DEFAULT_POWER);
+
+        self.classes.iter_mut().for_each(|p| p.particle_count = 0);
+        self.reset_particles();
+
+        for i in 0..MAX_CLASSES {
+            for j in 0..MAX_CLASSES {
+                self.param_matrix[(i, j)].power = DEFAULT_POWER;
+                self.param_matrix[(i, j)].radius = DEFAULT_RADIUS;
+            }
         }
-        self.clear();
     }
 
-    fn clear(&mut self) {
-        for i in 0..MAX_TYPES {
-            self.dots[i].clear();
+    fn reset_particles(&mut self) {
+        for c in 0..self.class_count {
+            for p in 0..self.classes[c].particle_count {
+                self.particles[(c, p)] = Particle::default();
+            }
         }
     }
 
     fn spawn(&mut self) {
-        self.clear();
+        self.reset_particles();
 
         let mut rand = SmallRng::from_entropy();
 
-        for i in 0..self.type_count {
-            self.dots[i].clear();
-            for _ in 0..self.params[i].count {
-                self.dots[i].push(Dot {
-                    pos: Vec2::new(self.world_radius, self.world_radius)
-                        + Vec2::angled(TAU * rand.sample::<f32, _>(OpenClosed01))
-                            * DEFAULT_SPAWN_RADIUS
-                            * rand.sample::<f32, _>(OpenClosed01),
+        for c in 0..self.class_count {
+            for p in 0..self.classes[c].particle_count {
+                self.particles[(c, p)] = Particle {
+                    pos: Vec2::angled(TAU * rand.sample::<f32, _>(Open01))
+                        * SPAWN_AREA_RADIUS
+                        * rand.sample::<f32, _>(Open01),
                     vel: Vec2::ZERO,
-                });
+                };
             }
         }
     }
 
     fn simulate(&mut self, dt: f32) {
-        let dots_clone = self.dots.to_owned();
-        for i in 0..self.type_count {
-            for j in 0..self.type_count {
-                let g = -self.params[i].power[j] * POWER_FACTOR;
-                self.dots[i].par_iter_mut().for_each(|p1| {
+        // ordains_cokery_dyschroa
+        for c1 in 0..self.class_count {
+            for c2 in 0..self.class_count {
+                let param = &self.param_matrix[(c1, c2)];
+                let power = -param.power * POWER_FACTOR;
+                let radius = param.radius;
+
+                for p1 in 0..self.classes[c1].particle_count {
                     let mut v = Vec2::ZERO;
-                    for p2 in dots_clone[j].iter() {
-                        v += get_dv(p2.pos - p1.pos, self.params[i].radius[j], g);
+
+                    let a = &self.particles[(c1, p1)];
+                    for p2 in 0..self.classes[c2].particle_count {
+                        let b = &self.particles[(c2, p2)];
+                        v += get_dv(b.pos - a.pos, radius, power);
                     }
 
-                    let d = Vec2::new(self.world_radius, self.world_radius) - p1.pos;
+                    let d = -a.pos;
                     let r = self.world_radius - d.length();
                     if r <= 120. {
                         v += -(d / r) * BORDER_CLOSE_POWER * ((r / BORDER_DISTANCE) - 1.);
                     }
 
-                    p1.vel = (p1.vel + v) * DEFAULT_DAMPING_FACTOR;
-                    p1.pos += p1.vel * self.speed_factor * dt;
-                });
+                    let a = &mut self.particles[(c1, p1)];
+                    a.vel = (a.vel + v) * DEFAULT_DAMPING_FACTOR;
+                    a.pos += a.vel * self.speed_factor * dt;
+                }
             }
         }
     }
 
     fn apply_seed(&mut self) {
-        self.clear();
+        self.reset_particles();
 
         let mut rand = if self.seed.is_empty() {
             SmallRng::from_entropy()
@@ -361,25 +343,18 @@ impl Smarticles {
             self.seed.hash(&mut hasher);
             SmallRng::seed_from_u64(hasher.finish())
         };
-        let mut rand = |min: f32, max: f32| min + (max - min) * rand.sample::<f32, _>(OpenClosed01);
+        let mut rand = |min: f32, max: f32| min + (max - min) * rand.sample::<f32, _>(Open01);
 
         const POW_F: f32 = 1.25;
         const RAD_F: f32 = 1.1;
 
-        for i in 0..self.type_count {
-            self.params[i].count = rand(
-                RANDOM_MIN_COUNT as f32,
-                (self.max_total_count / self.type_count) as f32,
-            ) as usize;
-            for j in 0..self.type_count {
+        for i in 0..self.class_count {
+            self.classes[i].particle_count =
+                rand(RANDOM_MIN_PARTICLE_COUNT as f32, MAX_PARTICLE_COUNT as f32) as usize;
+            for j in 0..self.class_count {
                 let pow = rand(MIN_POWER, MAX_POWER);
-                self.params[i].power[j] = if pow >= 0. {
-                    pow.powf(1. / POW_F)
-                } else {
-                    -pow.abs().powf(1. / POW_F)
-                };
-                //self.params[i].power[j] = rand(MIN_POWER, MAX_POWER);
-                self.params[i].radius[j] = rand(MIN_RADIUS, MAX_RADIUS).powf(1. / RAD_F);
+                self.param_matrix[(i, j)].power = pow.signum() * pow.abs().powf(1. / POW_F);
+                self.param_matrix[(i, j)].radius = rand(MIN_RADIUS, MAX_RADIUS).powf(1. / RAD_F);
             }
         }
     }
@@ -387,20 +362,19 @@ impl Smarticles {
     fn export(&self) -> String {
         let mut bytes: Vec<u8> = Vec::new();
         bytes.write_u16::<LE>(self.world_radius as u16).unwrap();
-        bytes.write_u8(self.type_count as u8).unwrap();
+        bytes.write_u8(self.class_count as u8).unwrap();
         bytes.write_u16::<LE>(self.speed_factor as u16).unwrap();
-        for param in &self.params {
-            bytes.write_u8((param.color.r() * 255.) as u8).unwrap();
-            bytes.write_u8((param.color.g() * 255.) as u8).unwrap();
-            bytes.write_u8((param.color.b() * 255.) as u8).unwrap();
-            bytes.write_u16::<LE>(param.count as u16).unwrap();
-            for &power in &param.power {
-                bytes.write_i8(power as i8).unwrap();
-            }
-            for &r in &param.radius {
-                bytes.write_u16::<LE>(r as u16).unwrap();
-            }
+        for prop in &self.classes {
+            bytes.write_u8((prop.color.r() * 255.) as u8).unwrap();
+            bytes.write_u8((prop.color.g() * 255.) as u8).unwrap();
+            bytes.write_u8((prop.color.b() * 255.) as u8).unwrap();
+            bytes.write_u16::<LE>(prop.particle_count as u16).unwrap();
         }
+        self.param_matrix.elements_row_major_iter().for_each(|p| {
+            bytes.write_i8(p.power as i8).unwrap();
+            bytes.write_i8(p.radius as i8).unwrap();
+        });
+
         format!("@{}", base64::encode(bytes))
     }
 
@@ -408,50 +382,30 @@ impl Smarticles {
         self.world_radius = bytes
             .read_u16::<LE>()
             .unwrap_or(DEFAULT_WORLD_RADIUS as u16) as f32;
-        self.type_count = bytes.read_u8().unwrap_or(MAX_TYPES as u8) as usize;
+        self.class_count = bytes.read_u8().unwrap_or(MAX_CLASSES as u8) as usize;
         self.speed_factor = bytes
             .read_u16::<LE>()
             .unwrap_or(DEFAULT_SPEED_FACTOR as u16) as f32;
-        for p in &mut self.params {
+        for p in &mut self.classes {
             let r = (bytes.read_u8().unwrap_or((p.color.r() * 255.) as u8) as f32) / 255.;
             let g = (bytes.read_u8().unwrap_or((p.color.g() * 255.) as u8) as f32) / 255.;
             let b = (bytes.read_u8().unwrap_or((p.color.b() * 255.) as u8) as f32) / 255.;
             p.color = Rgba::from_rgb(r, g, b);
-            p.count = bytes.read_u16::<LE>().unwrap_or(0) as usize;
-            for p in &mut p.power {
-                *p = bytes.read_i8().unwrap_or(0) as f32;
-            }
-            for r in &mut p.radius {
-                *r = bytes.read_u16::<LE>().unwrap_or(0) as f32;
+            p.particle_count = bytes.read_u16::<LE>().unwrap_or(0) as usize;
+        }
+
+        for i in 0..MAX_CLASSES {
+            for j in 0..MAX_CLASSES {
+                self.param_matrix[(i, j)].power = bytes.read_i8().unwrap_or(0) as f32;
+                self.param_matrix[(i, j)].radius = bytes.read_i8().unwrap_or(0) as f32;
             }
         }
     }
-}
-
-fn get_dv(distance: Vec2, action_radius: f32, power: f32) -> Vec2 {
-    match distance.length() {
-        r if r < action_radius && r > RAMP_START_RADIUS => {
-            (distance / r) * power * ramp_then_const(r, RAMP_START_RADIUS, RAMP_END_RADIUS)
-        }
-        r if r < RAMP_START_RADIUS && r > 0. => {
-            (distance / r) * CLOSE_POWER * simple_ramp(r, RAMP_START_RADIUS)
-        }
-        _ => Vec2::ZERO,
-    }
-}
-
-#[inline]
-fn simple_ramp(x: f32, y_intercept: f32) -> f32 {
-    (x / y_intercept) - 1.
-}
-#[inline]
-fn ramp_then_const(x: f32, zero: f32, const_start: f32) -> f32 {
-    // value of const: 2. * const_start / (zero + const_start)
-    (-(x - zero - const_start).abs() + x - zero + const_start) / (zero + const_start)
 }
 
 impl App for Smarticles {
     fn update(&mut self, ctx: &Context, frame: &mut Frame) {
+        let mut calc_duration = 0;
         if self.play {
             let time = Instant::now();
             let dt = time - self.prev_time;
@@ -464,6 +418,7 @@ impl App for Smarticles {
                 self.simulate(dt.as_secs_f32());
                 self.prev_time = time;
             }
+            calc_duration = time.elapsed().as_millis();
         }
 
         SidePanel::left("settings").show(ctx, |ui| {
@@ -503,7 +458,7 @@ impl App for Smarticles {
                 }
 
                 if ui.button("Reset").clicked() {
-                    self.restart();
+                    self.reset();
                 }
 
                 if ui.button("Quit").clicked() {
@@ -551,30 +506,32 @@ impl App for Smarticles {
                 }
             });
             ui.horizontal(|ui| {
-                ui.label("Particle Types:");
-                let type_count = ui.add(Slider::new(&mut self.type_count, MIN_TYPES..=MAX_TYPES));
+                ui.label("Particle Classes:");
+                let class_count = ui.add(Slider::new(
+                    &mut self.class_count,
+                    MIN_CLASSES..=MAX_CLASSES,
+                ));
                 let reset = ui.button("Reset");
                 if reset.clicked() {
-                    self.type_count = MAX_TYPES;
+                    self.class_count = MAX_CLASSES;
                 }
-                if type_count.changed() || reset.clicked() {
+                if class_count.changed() || reset.clicked() {
                     self.seed = self.export();
                     self.spawn();
                 }
             });
+
             ui.horizontal(|ui| {
-                let max_total_count = ui.label("Maximum Total Particle Count:");
-                ui.add(Slider::new(
-                    &mut self.max_total_count,
-                    MIN_TOTAL_COUNT..=MAX_TOTAL_COUNT,
-                ));
-                let reset = ui.button("Reset");
-                if reset.clicked() {
-                    self.max_total_count = DEFAULT_MAX_TOTAL_COUNT;
-                }
-                if max_total_count.changed() || reset.clicked() {
-                    self.spawn();
-                }
+                ui.label("Total particle count:");
+
+                let total_particle_count: usize =
+                    self.classes.iter().map(|c| c.particle_count).sum();
+                ui.code(total_particle_count.to_string());
+            });
+
+            ui.horizontal(|ui| {
+                ui.label("Calculation duration:");
+                ui.code(calc_duration.to_string() + "ms");
             });
 
             ui.horizontal(|ui| {
@@ -585,9 +542,8 @@ impl App for Smarticles {
                             x as f64,
                             get_dv(
                                 Vec2::new(x, 0.),
-                                self.params[self.selected_param.0].radius[self.selected_param.1],
-                                self.params[self.selected_param.0].power[self.selected_param.1]
-                                    * POWER_FACTOR,
+                                self.param_matrix[self.selected_param].radius,
+                                self.param_matrix[self.selected_param].power * POWER_FACTOR,
                             )
                             .x as f64,
                         ]
@@ -600,20 +556,20 @@ impl App for Smarticles {
             });
 
             ScrollArea::vertical().show(ui, |ui| {
-                for i in 0..self.type_count {
+                for i in 0..self.class_count {
                     ui.add_space(10.);
-                    ui.colored_label(self.params[i].color, &self.params[i].heading);
+                    ui.colored_label(self.classes[i].color, &self.classes[i].heading);
                     ui.separator();
 
                     ui.horizontal(|ui| {
                         ui.label("Color:");
                         let mut rgb = [
-                            self.params[i].color.r(),
-                            self.params[i].color.g(),
-                            self.params[i].color.b(),
+                            self.classes[i].color.r(),
+                            self.classes[i].color.g(),
+                            self.classes[i].color.b(),
                         ];
                         if ui.color_edit_button_rgb(&mut rgb).changed() {
-                            self.params[i].color = Rgba::from_rgb(rgb[0], rgb[1], rgb[2]);
+                            self.classes[i].color = Rgba::from_rgb(rgb[0], rgb[1], rgb[2]);
                             self.seed = self.export();
                         }
                     });
@@ -622,8 +578,8 @@ impl App for Smarticles {
                         ui.label("Count:");
                         if ui
                             .add(Slider::new(
-                                &mut self.params[i].count,
-                                MIN_COUNT..=(self.max_total_count / self.type_count),
+                                &mut self.classes[i].particle_count,
+                                MIN_COUNT..=MAX_PARTICLE_COUNT,
                             ))
                             .changed()
                         {
@@ -633,14 +589,14 @@ impl App for Smarticles {
 
                     ui.horizontal(|ui| {
                         ui.vertical(|ui| {
-                            for j in 0..self.type_count {
+                            for j in 0..self.class_count {
                                 ui.horizontal(|ui| {
                                     ui.label("Power (");
-                                    ui.colored_label(self.params[j].color, &self.params[j].name);
+                                    ui.colored_label(self.classes[j].color, &self.classes[j].name);
                                     ui.label(")");
                                     if ui
                                         .add(Slider::new(
-                                            &mut self.params[i].power[j],
+                                            &mut self.param_matrix[(i, j)].power,
                                             MIN_POWER..=MAX_POWER,
                                         ))
                                         .changed()
@@ -652,14 +608,14 @@ impl App for Smarticles {
                             }
                         });
                         ui.vertical(|ui| {
-                            for j in 0..self.type_count {
+                            for j in 0..self.class_count {
                                 ui.horizontal(|ui| {
                                     ui.label("Radius (");
-                                    ui.colored_label(self.params[j].color, &self.params[j].name);
+                                    ui.colored_label(self.classes[j].color, &self.classes[j].name);
                                     ui.label(")");
                                     if ui
                                         .add(Slider::new(
-                                            &mut self.params[i].radius[j],
+                                            &mut self.param_matrix[(i, j)].radius,
                                             MIN_RADIUS..=MAX_RADIUS,
                                         ))
                                         .changed()
@@ -690,14 +646,9 @@ impl App for Smarticles {
                 {
                     self.view.zoom += ctx.input().scroll_delta.y * ZOOM_FACTOR;
                 }
+
                 // This is weird but look at the values.
                 self.view.zoom = self.view.zoom.min(MAX_ZOOM).max(MIN_ZOOM);
-
-                let mut min = resp.rect.min
-                    + Vec2::new(
-                        (resp.rect.width() / 2.) - self.world_radius * self.view.zoom,
-                        (resp.rect.height() / 2.) - self.world_radius * self.view.zoom,
-                    );
 
                 if let Some(interact_pos) = ctx.input().pointer.interact_pos() {
                     if ctx.input().pointer.any_down() && resp.rect.contains(interact_pos) {
@@ -717,7 +668,10 @@ impl App for Smarticles {
                     self.view.pos = self.view.drag_start_view_pos + drag_delta / self.view.zoom;
                 }
 
-                min += self.view.pos.to_vec2() * self.view.zoom;
+                let min = resp.rect.min
+                    + Vec2::new(resp.rect.width(), resp.rect.height()) / 2.
+                    + (-Vec2::new(self.world_radius, self.world_radius) + self.view.pos.to_vec2())
+                        * self.view.zoom;
 
                 paint.circle_stroke(
                     min + Vec2::new(self.world_radius, self.world_radius) * self.view.zoom,
@@ -728,17 +682,17 @@ impl App for Smarticles {
                     },
                 );
 
-                for i in 0..self.type_count {
-                    let p = &self.params[i];
-                    let col: Color32 = p.color.into();
-                    for dot in &self.dots[i] {
-                        let pos = min + dot.pos * self.view.zoom;
+                for c in 0..self.class_count {
+                    let class = &self.classes[c];
+                    let col: Color32 = class.color.into();
+
+                    for p in 0..class.particle_count {
+                        let pos = min
+                            + (self.particles[(c, p)].pos
+                                + Vec2::new(self.world_radius, self.world_radius))
+                                * self.view.zoom;
                         if paint.clip_rect().contains(pos) {
-                            paint.circle_filled(
-                                pos,
-                                (PARTICLE_SIZE / 2.) * self.view.zoom.sqrt(),
-                                col,
-                            );
+                            paint.circle_filled(pos, (PARTICLE_SIZE / 2.) * self.view.zoom, col);
                         }
                     }
                 }
@@ -746,4 +700,115 @@ impl App for Smarticles {
 
         ctx.request_repaint();
     }
+}
+
+struct ClassProps {
+    name: String,
+    heading: String,
+    color: Rgba,
+    particle_count: usize,
+}
+
+#[derive(Clone)]
+struct Param {
+    power: f32,
+    radius: f32,
+}
+
+impl Param {
+    pub fn new(power: f32, radius: f32) -> Self {
+        Self { power, radius }
+    }
+}
+
+struct View {
+    zoom: f32,
+    pos: Pos2,
+    dragging: bool,
+    drag_start_pos: Pos2,
+    drag_start_view_pos: Pos2,
+}
+
+impl View {
+    const DEFAULT: View = Self {
+        zoom: DEFAULT_ZOOM,
+        pos: Pos2::ZERO,
+        dragging: false,
+        drag_start_pos: Pos2::ZERO,
+        drag_start_view_pos: Pos2::ZERO,
+    };
+}
+
+struct History {
+    values: [String; HISTORY_LENGTH],
+    current: usize,
+}
+
+impl History {
+    pub fn new() -> Self {
+        Self {
+            values: array::from_fn(|_| String::new()),
+            current: 0,
+        }
+    }
+
+    pub fn add<S>(&mut self, value: S)
+    where
+        S: ToString,
+    {
+        self.current = (self.current + 1) % HISTORY_LENGTH;
+        self.values[self.current] = value.to_string();
+    }
+
+    pub fn prev(&mut self) -> String {
+        if self.current != 0 {
+            self.current -= 1;
+        }
+        self.values[self.current].to_owned()
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Particle {
+    pos: Vec2,
+    vel: Vec2,
+}
+
+impl Default for Particle {
+    fn default() -> Self {
+        Self {
+            pos: Vec2::ZERO,
+            vel: Vec2::ZERO,
+        }
+    }
+}
+
+fn get_dv(distance: Vec2, action_radius: f32, power: f32) -> Vec2 {
+    // match distance.length() {
+    //     r if r < action_radius && r > RAMP_START_RADIUS => distance.normalized() * power,
+    //     r if r <= RAMP_START_RADIUS && r > 0. => {
+    //         distance.normalized() * CLOSE_POWER * simple_ramp(r, RAMP_START_RADIUS)
+    //     }
+    //     _ => Vec2::ZERO,
+    // }
+
+    match distance.length() {
+        r if r < action_radius && r > RAMP_START_RADIUS => {
+            (distance / r) * power * ramp_then_const(r, RAMP_START_RADIUS, RAMP_END_RADIUS)
+        }
+        r if r < RAMP_START_RADIUS && r > 0. => {
+            (distance / r) * CLOSE_POWER * simple_ramp(r, RAMP_START_RADIUS)
+        }
+        _ => Vec2::ZERO,
+    }
+}
+
+#[inline]
+fn simple_ramp(x: f32, y_intercept: f32) -> f32 {
+    (x / y_intercept) - 1.
+}
+#[inline]
+fn ramp_then_const(x: f32, zero: f32, const_start: f32) -> f32 {
+    // value of const: 2. * const_start / (zero + const_start)
+    (-(x - zero - const_start).abs() + x - zero + const_start) / (zero + const_start)
 }
