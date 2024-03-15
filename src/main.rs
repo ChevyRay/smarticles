@@ -165,8 +165,6 @@ fn main() {
         ("θ", Rgba::from_srgba_unmultiplied(247, 0, 243, 255)),
     ]);
 
-    // smarticles.
-
     eframe::run_native("Smarticles", options, Box::new(|_| Box::new(smarticles)));
 }
 
@@ -297,7 +295,6 @@ impl Smarticles {
     }
 
     fn simulate(&mut self, dt: f32) {
-        // ordains_cokery_dyschroa
         for c1 in 0..self.class_count {
             for c2 in 0..self.class_count {
                 let param = &self.param_matrix[(c1, c2)];
