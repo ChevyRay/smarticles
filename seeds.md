@@ -45,7 +45,6 @@
   - `zeks_oriels_yucch`: geometrical pattern ?
   - `outlaugh_chubasco_joulean`: big moving organism.
   - `chlorize_adaxial_gaiting`
-  - `@6AMEKAD/AAD0AQrsAAAAAAAAUABQAFAAUABQAFAAUABQAP9CAJABAArsAAAAAABQAFAAUABQAFAAUABQAFAAwP8A9AEAAArsAAAAAFAAUABQAFAAUABQAFAAUAAO/wBYAgoAAOwAAAAAUABQAFAAUABQAFAAUABQAADt/wAAAAAAAAAAAABQAFAAUABQAFAAUABQAFAABQv/AAAAAAAAAAAAAFAAUABQAFAAUABQAFAAUABhAP8AAAAAAAAAAAAAUABQAFAAUABQAFAAUABQAO0A5AAAAAAAAAAAAABQAFAAUABQAFAAUABQAFAA`: simple creature.
   - `grape_soushy_korakan`
   - `scalado_couter_poldavy`
   - `wagbeard_chacoli_overhusk`
@@ -62,10 +61,16 @@
   - `scalma_cobless_conicein`
   - `petrify_assembl_amphide`
   - `aphesis_muskegs_intake`
-  - `@6AMIKAD/AAACAwgbGubjJfUjPABBAEAAIQAhACMAHAA3AP9CANwDDSYTJ9sNIOU1AD8ANAAgABsAJQA8ACsAwP8A0gAO+uPaA/UZ9iAAOAA7ADsAQAAjACYAJQAO/wA3AQQSJBX/6icVLwAfAEEAGgAaAD0AFwArAADt/+kBC+nhERPd3xs3ABcAMwA7ACMAGAAbAB0ABQv/kgPuIwdL2esFBCsAIgAyACMALgBAACsANwBhAP9jAxru6u4IBhIYPAAkABgAGgAeAC0AJQAxAO0A5B8D7eYVJB8THh9AADYAMwAzACsAPwAwAB8A`
   - `salicin_vipers_blurb`
   - `laptops_concuss_pates`
   - `palpifer_evermore_morphgan`
   - `kakas_afteroar_bhuts`
   - `misogyne_sengi_depthen`
+- Added after `0.1.3`
   - `anthrone_garle_grunt`: asymetrical moving cell.
+  - `vocables_tenorist_hazardry`
+  - `hydrazin_ycleping_flunkey`
+  - `taliage_slag_amphorae`: I love this one.
+  - `hapu_rooibok_vitamer`
+  - `carabeen_saucery_package`
+  - `bondsmen_impi_erliche`: speeeeed.

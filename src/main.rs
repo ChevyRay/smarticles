@@ -9,7 +9,10 @@ use byteorder::{ReadBytesExt, WriteBytesExt, LE};
 use eframe::epaint::Color32;
 use eframe::{App, Frame, NativeOptions};
 use egui::plot::{Line, Plot, PlotPoints};
-use egui::{CentralPanel, Context, Pos2, Rgba, ScrollArea, Sense, SidePanel, Slider, Stroke, Vec2};
+use egui::{
+    Align2, CentralPanel, ComboBox, Context, FontId, Pos2, Rgba, ScrollArea, Sense, SidePanel,
+    Slider, Stroke, Vec2,
+};
 use rand::distributions::Open01;
 use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
@@ -57,7 +60,7 @@ const MAX_PARTICLE_COUNT: usize = 1200;
 /// When randomizing particle counts, this is the lowest
 /// possible value, this prevent random particle counts from
 /// being under this value.
-const RANDOM_MIN_PARTICLE_COUNT: usize = 100;
+const RANDOM_MIN_PARTICLE_COUNT: usize = 200;
 /// When randomizing particle counts, this is the highest
 /// possible value, this prevent random particle counts from
 /// being above this value.
@@ -111,8 +114,7 @@ const CLOSE_POWER: f32 = 20. * POWER_FACTOR;
 //                         |
 //
 
-const BORDER_DISTANCE: f32 = 100.;
-const BORDER_CLOSE_POWER: f32 = 100. * POWER_FACTOR;
+const BORDER_POWER: f32 = 10. * POWER_FACTOR;
 
 const DEFAULT_SPEED_FACTOR: f32 = 40.;
 const MIN_SPEED_FACTOR: f32 = 2.;
@@ -151,7 +153,7 @@ fn main() {
 struct Smarticles {
     world_radius: f32,
 
-    play: bool,
+    state: SimulationState,
     class_count: usize,
     speed_factor: f32,
     seed: String,
@@ -167,7 +169,9 @@ struct Smarticles {
 
     prev_time: Instant,
     view: View,
+
     selected_param: (usize, usize),
+    selected_particle: (usize, usize),
 
     history: History,
     words: Vec<String>,
@@ -197,14 +201,14 @@ impl Smarticles {
         Self {
             world_radius: DEFAULT_WORLD_RADIUS,
 
-            play: false,
+            state: SimulationState::Stopped,
             class_count: MAX_CLASSES,
             speed_factor: DEFAULT_SPEED_FACTOR,
             seed: "".to_string(),
 
             classes: classes.map(|(name, color)| ClassProps {
                 name: name.to_string(),
-                heading: "Class ".to_string() + &name.to_string(),
+                heading: "class ".to_string() + &name.to_string(),
                 color,
                 particle_count: 0,
             }),
@@ -217,7 +221,9 @@ impl Smarticles {
 
             prev_time: Instant::now(),
             view: View::DEFAULT,
+
             selected_param: (0, 0),
+            selected_particle: (0, 0),
 
             history: History::new(),
             words,
@@ -226,14 +232,15 @@ impl Smarticles {
 
     fn play(&mut self) {
         self.prev_time = Instant::now();
-        self.play = true;
+        self.state = SimulationState::Running;
     }
 
-    fn stop(&mut self) {
-        self.play = false;
+    fn pause(&mut self) {
+        self.state = SimulationState::Paused;
     }
 
     fn reset(&mut self) {
+        self.state = SimulationState::Stopped;
         self.world_radius = DEFAULT_WORLD_RADIUS;
         self.speed_factor = DEFAULT_SPEED_FACTOR;
         self.view = View::DEFAULT;
@@ -245,14 +252,6 @@ impl Smarticles {
             for j in 0..MAX_CLASSES {
                 self.param_matrix[(i, j)].power = DEFAULT_POWER;
                 self.param_matrix[(i, j)].radius = DEFAULT_RADIUS;
-            }
-        }
-    }
-
-    fn reset_particles(&mut self) {
-        for c in 0..self.class_count {
-            for p in 0..self.classes[c].particle_count {
-                self.particles[(c, p)] = Particle::default();
             }
         }
     }
@@ -270,6 +269,14 @@ impl Smarticles {
                         * rand.sample::<f32, _>(Open01),
                     vel: Vec2::ZERO,
                 };
+            }
+        }
+    }
+
+    fn reset_particles(&mut self) {
+        for c in 0..self.class_count {
+            for p in 0..self.classes[c].particle_count {
+                self.particles[(c, p)] = Particle::default();
             }
         }
     }
@@ -292,12 +299,10 @@ impl Smarticles {
                             v += get_dv(b.pos - a.pos, radius, power);
                         }
 
-                        let d = -a.pos;
-                        let r = self.world_radius - d.length();
-                        // TODO Improve this
-                        if r <= 120. {
-                            v +=
-                                -d.normalized() * BORDER_CLOSE_POWER * ((r / BORDER_DISTANCE) - 1.);
+                        let d = a.pos;
+                        let r = d.length();
+                        if r >= self.world_radius {
+                            v += -d.normalized() * BORDER_POWER * (r - self.world_radius);
                         }
 
                         a.vel = (a.vel + v) * DEFAULT_DAMPING_FACTOR;
@@ -396,7 +401,8 @@ impl Smarticles {
 impl App for Smarticles {
     fn update(&mut self, ctx: &Context, frame: &mut Frame) {
         let mut calc_duration = 0;
-        if self.play {
+
+        if self.state == SimulationState::Running {
             let time = Instant::now();
             let dt = time - self.prev_time;
             if let Some(tps) = MAX_UPDATE_RATE {
@@ -412,22 +418,22 @@ impl App for Smarticles {
         }
 
         SidePanel::left("settings").show(ctx, |ui| {
-            ui.heading("Settings");
+            ui.heading("settings");
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("Respawn").clicked() {
+                if ui.button("respawn").clicked() {
                     self.spawn();
                 }
 
-                if self.play {
-                    if ui.button("Pause").clicked() {
-                        self.stop();
+                if self.state == SimulationState::Running {
+                    if ui.button("pause").clicked() {
+                        self.pause();
                     }
-                } else if ui.button("Play").clicked() {
+                } else if ui.button("play").clicked() {
                     self.play();
                 }
 
-                if ui.button("Randomize").clicked() {
+                if ui.button("randomize").clicked() {
                     let w1 = rand::random::<usize>() % self.words.len();
                     let w2 = rand::random::<usize>() % self.words.len();
                     let w3 = rand::random::<usize>() % self.words.len();
@@ -437,41 +443,45 @@ impl App for Smarticles {
                     self.history.add(self.seed.to_owned());
                     self.spawn();
                 }
-                if ui.button("Previous Seed").clicked() {
+                if ui.button("previous Seed").clicked() {
                     self.seed = self.history.prev();
                     self.apply_seed();
                     self.spawn();
                 }
 
-                if ui.button("Reset View").clicked() {
+                if ui.button("reset View").clicked() {
                     self.view = View::DEFAULT;
                 }
 
-                if ui.button("Reset").clicked() {
+                if ui
+                    .button("reset")
+                    .on_hover_text("resets everything")
+                    .clicked()
+                {
                     self.reset();
                 }
 
-                if ui.button("Quit").clicked() {
+                if ui.button("quit").clicked() {
                     frame.close();
                 }
             });
             ui.horizontal(|ui| {
-                ui.label("Seed:");
+                ui.label("seed:");
                 if ui.text_edit_singleline(&mut self.seed).changed() {
                     self.apply_seed();
                     self.history.add(self.seed.to_owned());
                     self.spawn();
-                    self.stop();
+                    self.pause();
                 }
             });
 
             ui.horizontal(|ui| {
-                ui.label("World Radius:");
+                ui.label("world radius:");
                 let world_radius = ui.add(Slider::new(
                     &mut self.world_radius,
                     MIN_WORLD_RADIUS..=MAX_WORLD_RADIUS,
                 ));
-                let reset = ui.button("Reset");
+                let reset = ui.button("reset");
                 if reset.clicked() {
                     self.world_radius = DEFAULT_WORLD_RADIUS;
                 }
@@ -482,12 +492,12 @@ impl App for Smarticles {
             });
 
             ui.horizontal(|ui| {
-                ui.label("Speed Factor:");
+                ui.label("speed factor:");
                 let speed_factor = ui.add(Slider::new(
                     &mut self.speed_factor,
                     MIN_SPEED_FACTOR..=MAX_SPEED_FACTOR,
                 ));
-                let reset = ui.button("Reset");
+                let reset = ui.button("reset");
                 if reset.clicked() {
                     self.speed_factor = DEFAULT_SPEED_FACTOR;
                 }
@@ -496,12 +506,12 @@ impl App for Smarticles {
                 }
             });
             ui.horizontal(|ui| {
-                ui.label("Particle Classes:");
+                ui.label("particle classes:");
                 let class_count = ui.add(Slider::new(
                     &mut self.class_count,
                     MIN_CLASSES..=MAX_CLASSES,
                 ));
-                let reset = ui.button("Reset");
+                let reset = ui.button("reset");
                 if reset.clicked() {
                     self.class_count = MAX_CLASSES;
                 }
@@ -512,7 +522,7 @@ impl App for Smarticles {
             });
 
             ui.horizontal(|ui| {
-                ui.label("Total particle count:");
+                ui.label("total particle count:");
 
                 let total_particle_count: usize =
                     self.classes.iter().map(|c| c.particle_count).sum();
@@ -520,30 +530,62 @@ impl App for Smarticles {
             });
 
             ui.horizontal(|ui| {
-                ui.label("Calculation duration:");
+                ui.label("calculation time:");
                 ui.code(calc_duration.to_string() + "ms");
             });
 
-            ui.horizontal(|ui| {
-                let points: PlotPoints = (0..1000)
-                    .map(|i| {
-                        let x = i as f32 * 0.1;
-                        [
-                            x as f64,
-                            get_dv(
-                                Vec2::new(x, 0.),
-                                self.param_matrix[self.selected_param].radius,
-                                self.param_matrix[self.selected_param].power * POWER_FACTOR,
-                            )
-                            .x as f64,
-                        ]
-                    })
-                    .collect();
-                let line = Line::new(points);
-                Plot::new("activation function")
-                    .view_aspect(2.0)
-                    .show(ui, |plot_ui| plot_ui.line(line));
+            ui.collapsing("particle inspector", |ui| {
+                ui.horizontal(|ui| {
+                    ComboBox::from_label("class:").show_index(
+                        ui,
+                        &mut self.selected_particle.0,
+                        self.classes.len(),
+                        |i| self.classes[i].heading.to_owned(),
+                    );
+                    ui.label("particle index:");
+                    ui.add(Slider::new(
+                        &mut self.selected_particle.1,
+                        0..=(self.classes[self.selected_particle.0].particle_count - 1),
+                    ));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("position:");
+                    ui.code(format!("{:?}", self.particles[self.selected_particle].pos));
+                    ui.label("velocity:");
+                    ui.code(
+                        self.particles[self.selected_particle]
+                            .vel
+                            .length()
+                            .to_string(),
+                    );
+                    ui.code(format!("{:?}", self.particles[self.selected_particle].vel));
+                });
             });
+
+            ui.collapsing(
+                "velocity elementary variation with respect to distance between particles",
+                |ui| {
+                    let points: PlotPoints = (0..1000)
+                        .map(|i| {
+                            let x = i as f32 * 0.1;
+                            [
+                                x as f64,
+                                get_dv(
+                                    Vec2::new(x, 0.),
+                                    self.param_matrix[self.selected_param].radius,
+                                    self.param_matrix[self.selected_param].power * POWER_FACTOR,
+                                )
+                                .x as f64,
+                            ]
+                        })
+                        .collect();
+                    let line = Line::new(points);
+                    Plot::new("activation function")
+                        .view_aspect(2.0)
+                        .show(ui, |plot_ui| plot_ui.line(line));
+                },
+            );
 
             ScrollArea::vertical().show(ui, |ui| {
                 for i in 0..self.class_count {
@@ -552,7 +594,7 @@ impl App for Smarticles {
                     ui.separator();
 
                     ui.horizontal(|ui| {
-                        ui.label("Color:");
+                        ui.label("color:");
                         let mut rgb = [
                             self.classes[i].color.r(),
                             self.classes[i].color.g(),
@@ -565,7 +607,7 @@ impl App for Smarticles {
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Count:");
+                        ui.label("particle count:");
                         if ui
                             .add(Slider::new(
                                 &mut self.classes[i].particle_count,
@@ -577,44 +619,52 @@ impl App for Smarticles {
                         }
                     });
 
-                    ui.horizontal(|ui| {
-                        ui.vertical(|ui| {
-                            for j in 0..self.class_count {
-                                ui.horizontal(|ui| {
-                                    ui.label("Power (");
-                                    ui.colored_label(self.classes[j].color, &self.classes[j].name);
-                                    ui.label(")");
-                                    if ui
-                                        .add(Slider::new(
-                                            &mut self.param_matrix[(i, j)].power,
-                                            MIN_POWER..=MAX_POWER,
-                                        ))
-                                        .changed()
-                                    {
-                                        self.selected_param = (i, j);
-                                        self.seed = self.export();
-                                    }
-                                });
-                            }
-                        });
-                        ui.vertical(|ui| {
-                            for j in 0..self.class_count {
-                                ui.horizontal(|ui| {
-                                    ui.label("Radius (");
-                                    ui.colored_label(self.classes[j].color, &self.classes[j].name);
-                                    ui.label(")");
-                                    if ui
-                                        .add(Slider::new(
-                                            &mut self.param_matrix[(i, j)].radius,
-                                            MIN_RADIUS..=MAX_RADIUS,
-                                        ))
-                                        .changed()
-                                    {
-                                        self.selected_param = (i, j);
-                                        self.seed = self.export();
-                                    }
-                                });
-                            }
+                    ui.collapsing(self.classes[i].heading.to_owned() + " params", |ui| {
+                        ui.horizontal(|ui| {
+                            ui.vertical(|ui| {
+                                for j in 0..self.class_count {
+                                    ui.horizontal(|ui| {
+                                        ui.label("power (");
+                                        ui.colored_label(
+                                            self.classes[j].color,
+                                            &self.classes[j].name,
+                                        );
+                                        ui.label(")");
+                                        if ui
+                                            .add(Slider::new(
+                                                &mut self.param_matrix[(i, j)].power,
+                                                MIN_POWER..=MAX_POWER,
+                                            ))
+                                            .changed()
+                                        {
+                                            self.selected_param = (i, j);
+                                            self.seed = self.export();
+                                        }
+                                    });
+                                }
+                            });
+                            ui.vertical(|ui| {
+                                for j in 0..self.class_count {
+                                    ui.horizontal(|ui| {
+                                        ui.label("radius (");
+                                        ui.colored_label(
+                                            self.classes[j].color,
+                                            &self.classes[j].name,
+                                        );
+                                        ui.label(")");
+                                        if ui
+                                            .add(Slider::new(
+                                                &mut self.param_matrix[(i, j)].radius,
+                                                MIN_RADIUS..=MAX_RADIUS,
+                                            ))
+                                            .changed()
+                                        {
+                                            self.selected_param = (i, j);
+                                            self.seed = self.export();
+                                        }
+                                    });
+                                }
+                            });
                         });
                     });
                 }
@@ -665,31 +715,47 @@ impl App for Smarticles {
 
                 paint.circle_stroke(
                     min + Vec2::new(self.world_radius, self.world_radius) * self.view.zoom,
-                    self.world_radius * self.view.zoom,
+                    (self.world_radius + 60.) * self.view.zoom,
                     Stroke {
                         width: 1.,
                         color: Color32::from_rgb(200, 200, 200),
                     },
                 );
 
+                let center = min + Vec2::new(self.world_radius, self.world_radius) * self.view.zoom;
+
                 for c in 0..self.class_count {
                     let class = &self.classes[c];
                     let col: Color32 = class.color.into();
 
                     for p in 0..class.particle_count {
-                        let pos = min
-                            + (self.particles[(c, p)].pos
-                                + Vec2::new(self.world_radius, self.world_radius))
-                                * self.view.zoom;
+                        let pos = center + self.particles[(c, p)].pos * self.view.zoom;
                         if paint.clip_rect().contains(pos) {
-                            paint.circle_filled(pos, (PARTICLE_SIZE / 2.) * self.view.zoom, col);
+                            paint.circle_filled(pos, PARTICLE_SIZE / 2., col);
                         }
                     }
+                }
+
+                if self.state != SimulationState::Stopped {
+                    paint.text(
+                        center + self.particles[self.selected_particle].pos * self.view.zoom,
+                        Align2::LEFT_BOTTOM,
+                        format!("{:?}", self.selected_particle),
+                        FontId::monospace(12.),
+                        Color32::WHITE,
+                    );
                 }
             });
 
         ctx.request_repaint();
     }
+}
+
+#[derive(PartialEq)]
+enum SimulationState {
+    Stopped,
+    Paused,
+    Running,
 }
 
 struct ClassProps {
@@ -776,10 +842,10 @@ impl Default for Particle {
 fn get_dv(distance: Vec2, action_radius: f32, power: f32) -> Vec2 {
     match distance.length() {
         r if r < action_radius && r > RAMP_START_RADIUS => {
-            (distance / r) * power * ramp_then_const(r, RAMP_START_RADIUS, RAMP_END_RADIUS)
+            distance.normalized() * power * ramp_then_const(r, RAMP_START_RADIUS, RAMP_END_RADIUS)
         }
-        r if r < RAMP_START_RADIUS && r > 0. => {
-            (distance / r) * CLOSE_POWER * simple_ramp(r, RAMP_START_RADIUS)
+        r if r <= RAMP_START_RADIUS && r > 0. => {
+            distance.normalized() * CLOSE_POWER * simple_ramp(r, RAMP_START_RADIUS)
         }
         _ => Vec2::ZERO,
     }
