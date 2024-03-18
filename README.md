@@ -9,6 +9,8 @@ simulator with some fun features.
 >
 > – from the [original repository](https://github.com/hunar4321/life_code)
 
+> note that the current previews in this readme need to be updated.
+
 ![animation of the app simulating particles](./img/app_anim.gif)
 
 ## What has changed/will change compared to the original in this fork
