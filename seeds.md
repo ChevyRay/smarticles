@@ -43,7 +43,7 @@
 - Added after `0.1.2`
   - `disbowel_decor_bingo`
   - `zeks_oriels_yucch`: geometrical pattern ?
-  - `outlaugh_chubasco_joulean`: big moving organism.
+  - `outlaugh_chubasco_joulean`: big moving organism
   - `chlorize_adaxial_gaiting`
   - `grape_soushy_korakan`
   - `scalado_couter_poldavy`
@@ -67,10 +67,13 @@
   - `kakas_afteroar_bhuts`
   - `misogyne_sengi_depthen`
 - Added after `0.1.3`
-  - `anthrone_garle_grunt`: asymetrical moving cell.
+  - `anthrone_garle_grunt`: asymetrical moving cell
   - `vocables_tenorist_hazardry`
   - `hydrazin_ycleping_flunkey`
-  - `taliage_slag_amphorae`: I love this one.
+  - `taliage_slag_amphorae`
   - `hapu_rooibok_vitamer`
   - `carabeen_saucery_package`
-  - `bondsmen_impi_erliche`: speeeeed.
+  - `bondsmen_impi_erliche`: speeeeed (kind of)
+  - `breaming_uncivic_unfellow`
+  - `valentin_fleurit`: my name
+  - `unterse_trench_assures`

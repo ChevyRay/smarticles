@@ -1,5 +1,5 @@
-use std::array;
 use std::collections::hash_map::DefaultHasher;
+use std::collections::VecDeque;
 use std::f32::consts::TAU;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
@@ -10,8 +10,8 @@ use eframe::epaint::Color32;
 use eframe::{App, Frame, NativeOptions};
 use egui::plot::{Line, Plot, PlotPoints};
 use egui::{
-    Align2, CentralPanel, ComboBox, Context, FontId, Pos2, Rgba, ScrollArea, Sense, SidePanel,
-    Slider, Stroke, Vec2,
+    Align2, CentralPanel, ComboBox, Context, FontId, Pos2, ScrollArea, Sense, SidePanel, Slider,
+    Stroke, Vec2,
 };
 use rand::distributions::Open01;
 use rand::rngs::SmallRng;
@@ -44,11 +44,11 @@ const MAX_CLASSES: usize = 8;
 const PARTICLE_SIZE: f32 = 2.;
 
 /// Default world width the simulation.
-const DEFAULT_WORLD_RADIUS: f32 = 1000.;
+const DEFAULT_WORLD_RADIUS: f32 = 900.;
 /// Min world width the simulation.
 const MIN_WORLD_RADIUS: f32 = 200.;
 /// Max world width the simulation.
-const MAX_WORLD_RADIUS: f32 = DEFAULT_WORLD_RADIUS * 1.5;
+const MAX_WORLD_RADIUS: f32 = 1200.;
 
 /// Radius of the spawn area.
 const SPAWN_AREA_RADIUS: f32 = 40.;
@@ -116,18 +116,15 @@ const CLOSE_POWER: f32 = 20. * POWER_FACTOR;
 
 const BORDER_POWER: f32 = 10. * POWER_FACTOR;
 
-const DEFAULT_SPEED_FACTOR: f32 = 40.;
-const MIN_SPEED_FACTOR: f32 = 2.;
-const MAX_SPEED_FACTOR: f32 = 80.;
-
-const DEFAULT_DAMPING_FACTOR: f32 = 0.5;
+const DEFAULT_DAMPING_FACTOR: f32 = 0.4;
+const POS_FACTOR: f32 = 40.;
 
 const DEFAULT_ZOOM: f32 = 1.;
 const MIN_ZOOM: f32 = 0.5;
 const MAX_ZOOM: f32 = 10.;
 const ZOOM_FACTOR: f32 = 0.02;
 
-const HISTORY_LENGTH: usize = 100;
+const MAX_HISTORY_LEN: usize = 10;
 
 fn main() {
     let options = NativeOptions {
@@ -137,15 +134,33 @@ fn main() {
     };
 
     let smarticles = Smarticles::new([
-        ("α", Rgba::from_srgba_unmultiplied(255, 0, 0, 255)),
-        ("β", Rgba::from_srgba_unmultiplied(255, 140, 0, 255)),
-        ("γ", Rgba::from_srgba_unmultiplied(225, 255, 0, 255)),
-        ("δ", Rgba::from_srgba_unmultiplied(68, 255, 0, 255)),
-        ("ε", Rgba::from_srgba_unmultiplied(0, 247, 255, 255)),
-        ("ζ", Rgba::from_srgba_unmultiplied(40, 60, 255, 255)),
-        ("η", Rgba::from_srgba_unmultiplied(166, 0, 255, 255)),
-        ("θ", Rgba::from_srgba_unmultiplied(247, 0, 243, 255)),
+        ("α", Color32::from_rgb(247, 0, 243)),
+        ("β", Color32::from_rgb(166, 0, 255)),
+        ("γ", Color32::from_rgb(60, 80, 255)),
+        ("δ", Color32::from_rgb(0, 247, 255)),
+        ("ε", Color32::from_rgb(68, 255, 0)),
+        ("ζ", Color32::from_rgb(225, 255, 0)),
+        ("η", Color32::from_rgb(255, 140, 0)),
+        ("θ", Color32::from_rgb(255, 0, 0)),
     ]);
+
+    // ("α", Color32::from_rgb(251, 70, 76)),
+    // ("β", Color32::from_rgb(233, 151, 63)),
+    // ("γ", Color32::from_rgb(224, 222, 113)),
+    // ("δ", Color32::from_rgb(68, 207, 110)),
+    // ("ε", Color32::from_rgb(83, 223, 221)),
+    // ("ζ", Color32::from_rgb(2, 122, 255)),
+    // ("η", Color32::from_rgb(168, 130, 255)),
+    // ("θ", Color32::from_rgb(250, 153, 205)),
+
+    // ("α", Color32::from_rgb(251, 123, 119)),
+    // ("β", Color32::from_rgb(253, 193, 112)),
+    // ("γ", Color32::from_rgb(243, 248, 127)),
+    // ("δ", Color32::from_rgb(152, 247, 134)),
+    // ("ε", Color32::from_rgb(105, 235, 252)),
+    // ("ζ", Color32::from_rgb(109, 158, 252)),
+    // ("η", Color32::from_rgb(147, 125, 248)),
+    // ("θ", Color32::from_rgb(247, 142, 240)),
 
     eframe::run_native("Smarticles", options, Box::new(|_| Box::new(smarticles)));
 }
@@ -155,7 +170,6 @@ struct Smarticles {
 
     state: SimulationState,
     class_count: usize,
-    speed_factor: f32,
     seed: String,
 
     classes: [ClassProps; MAX_CLASSES],
@@ -173,12 +187,14 @@ struct Smarticles {
     selected_param: (usize, usize),
     selected_particle: (usize, usize),
 
-    history: History,
+    history: VecDeque<String>,
+    selected_history_entry: usize,
+
     words: Vec<String>,
 }
 
 impl Smarticles {
-    fn new<S>(classes: [(S, Rgba); MAX_CLASSES]) -> Self
+    fn new<S>(classes: [(S, Color32); MAX_CLASSES]) -> Self
     where
         S: ToString,
     {
@@ -203,7 +219,6 @@ impl Smarticles {
 
             state: SimulationState::Stopped,
             class_count: MAX_CLASSES,
-            speed_factor: DEFAULT_SPEED_FACTOR,
             seed: "".to_string(),
 
             classes: classes.map(|(name, color)| ClassProps {
@@ -225,7 +240,9 @@ impl Smarticles {
             selected_param: (0, 0),
             selected_particle: (0, 0),
 
-            history: History::new(),
+            history: VecDeque::new(),
+            selected_history_entry: 0,
+
             words,
         }
     }
@@ -242,7 +259,6 @@ impl Smarticles {
     fn reset(&mut self) {
         self.state = SimulationState::Stopped;
         self.world_radius = DEFAULT_WORLD_RADIUS;
-        self.speed_factor = DEFAULT_SPEED_FACTOR;
         self.view = View::DEFAULT;
 
         self.classes.iter_mut().for_each(|p| p.particle_count = 0);
@@ -306,7 +322,7 @@ impl Smarticles {
                         }
 
                         a.vel = (a.vel + v) * DEFAULT_DAMPING_FACTOR;
-                        a.pos += a.vel * self.speed_factor * dt;
+                        a.pos += a.vel * POS_FACTOR * dt;
 
                         a
                     })
@@ -358,11 +374,10 @@ impl Smarticles {
         let mut bytes: Vec<u8> = Vec::new();
         bytes.write_u16::<LE>(self.world_radius as u16).unwrap();
         bytes.write_u8(self.class_count as u8).unwrap();
-        bytes.write_u16::<LE>(self.speed_factor as u16).unwrap();
         for prop in &self.classes {
-            bytes.write_u8((prop.color.r() * 255.) as u8).unwrap();
-            bytes.write_u8((prop.color.g() * 255.) as u8).unwrap();
-            bytes.write_u8((prop.color.b() * 255.) as u8).unwrap();
+            // bytes.write_u8((prop.color.r() * 255.) as u8).unwrap();
+            // bytes.write_u8((prop.color.g() * 255.) as u8).unwrap();
+            // bytes.write_u8((prop.color.b() * 255.) as u8).unwrap();
             bytes.write_u16::<LE>(prop.particle_count as u16).unwrap();
         }
         self.param_matrix.elements_row_major_iter().for_each(|p| {
@@ -378,14 +393,11 @@ impl Smarticles {
             .read_u16::<LE>()
             .unwrap_or(DEFAULT_WORLD_RADIUS as u16) as f32;
         self.class_count = bytes.read_u8().unwrap_or(MAX_CLASSES as u8) as usize;
-        self.speed_factor = bytes
-            .read_u16::<LE>()
-            .unwrap_or(DEFAULT_SPEED_FACTOR as u16) as f32;
         for p in &mut self.classes {
-            let r = (bytes.read_u8().unwrap_or((p.color.r() * 255.) as u8) as f32) / 255.;
-            let g = (bytes.read_u8().unwrap_or((p.color.g() * 255.) as u8) as f32) / 255.;
-            let b = (bytes.read_u8().unwrap_or((p.color.b() * 255.) as u8) as f32) / 255.;
-            p.color = Rgba::from_rgb(r, g, b);
+            // let r = (bytes.read_u8().unwrap_or((p.color.r() * 255.) as u8) as f32) / 255.;
+            // let g = (bytes.read_u8().unwrap_or((p.color.g() * 255.) as u8) as f32) / 255.;
+            // let b = (bytes.read_u8().unwrap_or((p.color.b() * 255.) as u8) as f32) / 255.;
+            // p.color = Rgba::from_rgb(r, g, b);
             p.particle_count = bytes.read_u16::<LE>().unwrap_or(0) as usize;
         }
 
@@ -395,6 +407,14 @@ impl Smarticles {
                 self.param_matrix[(i, j)].radius = bytes.read_i8().unwrap_or(0) as f32;
             }
         }
+    }
+
+    fn update_history(&mut self) {
+        self.history.push_back(self.seed.to_owned());
+        if self.history.len() > MAX_HISTORY_LEN {
+            self.history.pop_front();
+        }
+        self.selected_history_entry = self.history.len() - 1;
     }
 }
 
@@ -421,57 +441,74 @@ impl App for Smarticles {
             ui.heading("settings");
             ui.separator();
             ui.horizontal(|ui| {
-                if ui.button("respawn").clicked() {
+                if ui
+                    .button("respawn")
+                    .on_hover_text("spawn particles again")
+                    .clicked()
+                {
                     self.spawn();
                 }
 
                 if self.state == SimulationState::Running {
-                    if ui.button("pause").clicked() {
+                    if ui
+                        .button("pause")
+                        .on_hover_text("pause the simulation")
+                        .clicked()
+                    {
                         self.pause();
                     }
-                } else if ui.button("play").clicked() {
+                } else if ui
+                    .button("play")
+                    .on_hover_text("start the simulation")
+                    .clicked()
+                {
                     self.play();
                 }
 
-                if ui.button("randomize").clicked() {
+                if ui
+                    .button("randomize")
+                    .on_hover_text("randomly pick a new seed")
+                    .clicked()
+                {
                     let w1 = rand::random::<usize>() % self.words.len();
                     let w2 = rand::random::<usize>() % self.words.len();
                     let w3 = rand::random::<usize>() % self.words.len();
                     self.seed = format!("{}_{}_{}", self.words[w1], self.words[w2], self.words[w3]);
 
-                    self.apply_seed();
-                    self.history.add(self.seed.to_owned());
-                    self.spawn();
-                }
-                if ui.button("previous Seed").clicked() {
-                    self.seed = self.history.prev();
+                    self.update_history();
+
                     self.apply_seed();
                     self.spawn();
                 }
 
-                if ui.button("reset View").clicked() {
+                if ui
+                    .button("reset View")
+                    .on_hover_text("reset zoom and position")
+                    .clicked()
+                {
                     self.view = View::DEFAULT;
                 }
 
                 if ui
                     .button("reset")
-                    .on_hover_text("resets everything")
+                    .on_hover_text("reset everything")
                     .clicked()
                 {
                     self.reset();
                 }
 
-                if ui.button("quit").clicked() {
+                if ui.button("quit").on_hover_text("exit smarticles").clicked() {
                     frame.close();
                 }
             });
             ui.horizontal(|ui| {
                 ui.label("seed:");
-                if ui.text_edit_singleline(&mut self.seed).changed() {
+                ui.text_edit_singleline(&mut self.seed);
+                if ui.button("apply").clicked() {
+                    self.update_history();
+
                     self.apply_seed();
-                    self.history.add(self.seed.to_owned());
                     self.spawn();
-                    self.pause();
                 }
             });
 
@@ -491,20 +528,6 @@ impl App for Smarticles {
                 }
             });
 
-            ui.horizontal(|ui| {
-                ui.label("speed factor:");
-                let speed_factor = ui.add(Slider::new(
-                    &mut self.speed_factor,
-                    MIN_SPEED_FACTOR..=MAX_SPEED_FACTOR,
-                ));
-                let reset = ui.button("reset");
-                if reset.clicked() {
-                    self.speed_factor = DEFAULT_SPEED_FACTOR;
-                }
-                if speed_factor.changed() || reset.clicked() {
-                    self.seed = self.export();
-                }
-            });
             ui.horizontal(|ui| {
                 ui.label("particle classes:");
                 let class_count = ui.add(Slider::new(
@@ -534,9 +557,28 @@ impl App for Smarticles {
                 ui.code(calc_duration.to_string() + "ms");
             });
 
+            if self.history.len() > 1 {
+                ui.collapsing("seed history", |ui| {
+                    if ComboBox::from_id_source("seed history")
+                        .width(200.)
+                        .show_index(
+                            ui,
+                            &mut self.selected_history_entry,
+                            self.history.len(),
+                            |i| self.history[i].to_owned(),
+                        )
+                        .changed()
+                    {
+                        self.apply_seed();
+                        self.spawn();
+                    };
+                });
+            }
+
             ui.collapsing("particle inspector", |ui| {
                 ui.horizontal(|ui| {
-                    ComboBox::from_label("class:").show_index(
+                    ui.label("class:");
+                    ComboBox::from_id_source("class").show_index(
                         ui,
                         &mut self.selected_particle.0,
                         self.classes.len(),
@@ -552,6 +594,9 @@ impl App for Smarticles {
                 ui.horizontal(|ui| {
                     ui.label("position:");
                     ui.code(format!("{:?}", self.particles[self.selected_particle].pos));
+                });
+
+                ui.horizontal(|ui| {
                     ui.label("velocity:");
                     ui.code(
                         self.particles[self.selected_particle]
@@ -593,18 +638,18 @@ impl App for Smarticles {
                     ui.colored_label(self.classes[i].color, &self.classes[i].heading);
                     ui.separator();
 
-                    ui.horizontal(|ui| {
-                        ui.label("color:");
-                        let mut rgb = [
-                            self.classes[i].color.r(),
-                            self.classes[i].color.g(),
-                            self.classes[i].color.b(),
-                        ];
-                        if ui.color_edit_button_rgb(&mut rgb).changed() {
-                            self.classes[i].color = Rgba::from_rgb(rgb[0], rgb[1], rgb[2]);
-                            self.seed = self.export();
-                        }
-                    });
+                    // ui.horizontal(|ui| {
+                    //     ui.label("color:");
+                    //     let mut rgb = [
+                    //         self.classes[i].color.r(),
+                    //         self.classes[i].color.g(),
+                    //         self.classes[i].color.b(),
+                    //     ];
+                    //     if ui.color_edit_button_rgb(&mut rgb).changed() {
+                    //         self.classes[i].color = Rgba::from_rgb(rgb[0], rgb[1], rgb[2]);
+                    //         self.seed = self.export();
+                    //     }
+                    // });
 
                     ui.horizontal(|ui| {
                         ui.label("particle count:");
@@ -616,6 +661,7 @@ impl App for Smarticles {
                             .changed()
                         {
                             self.seed = self.export();
+                            self.spawn();
                         }
                     });
 
@@ -751,6 +797,28 @@ impl App for Smarticles {
     }
 }
 
+fn get_dv(distance: Vec2, action_radius: f32, power: f32) -> Vec2 {
+    match distance.length() {
+        r if r < action_radius && r > RAMP_START_RADIUS => {
+            distance.normalized() * power * ramp_then_const(r, RAMP_START_RADIUS, RAMP_END_RADIUS)
+        }
+        r if r <= RAMP_START_RADIUS && r > 0. => {
+            distance.normalized() * CLOSE_POWER * simple_ramp(r, RAMP_START_RADIUS)
+        }
+        _ => Vec2::ZERO,
+    }
+}
+
+#[inline]
+fn simple_ramp(x: f32, y_intercept: f32) -> f32 {
+    (x / y_intercept) - 1.
+}
+#[inline]
+fn ramp_then_const(x: f32, zero: f32, const_start: f32) -> f32 {
+    // value of const: 2. * const_start / (zero + const_start)
+    (-(x - zero - const_start).abs() + x - zero + const_start) / (zero + const_start)
+}
+
 #[derive(PartialEq)]
 enum SimulationState {
     Stopped,
@@ -761,11 +829,11 @@ enum SimulationState {
 struct ClassProps {
     name: String,
     heading: String,
-    color: Rgba,
+    color: Color32,
     particle_count: usize,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Param {
     power: f32,
     radius: f32,
@@ -795,35 +863,6 @@ impl View {
     };
 }
 
-struct History {
-    values: [String; HISTORY_LENGTH],
-    current: usize,
-}
-
-impl History {
-    pub fn new() -> Self {
-        Self {
-            values: array::from_fn(|_| String::new()),
-            current: 0,
-        }
-    }
-
-    pub fn add<S>(&mut self, value: S)
-    where
-        S: ToString,
-    {
-        self.current = (self.current + 1) % HISTORY_LENGTH;
-        self.values[self.current] = value.to_string();
-    }
-
-    pub fn prev(&mut self) -> String {
-        if self.current != 0 {
-            self.current -= 1;
-        }
-        self.values[self.current].to_owned()
-    }
-}
-
 #[derive(Clone, Copy)]
 struct Particle {
     pos: Vec2,
@@ -837,26 +876,4 @@ impl Default for Particle {
             vel: Vec2::ZERO,
         }
     }
-}
-
-fn get_dv(distance: Vec2, action_radius: f32, power: f32) -> Vec2 {
-    match distance.length() {
-        r if r < action_radius && r > RAMP_START_RADIUS => {
-            distance.normalized() * power * ramp_then_const(r, RAMP_START_RADIUS, RAMP_END_RADIUS)
-        }
-        r if r <= RAMP_START_RADIUS && r > 0. => {
-            distance.normalized() * CLOSE_POWER * simple_ramp(r, RAMP_START_RADIUS)
-        }
-        _ => Vec2::ZERO,
-    }
-}
-
-#[inline]
-fn simple_ramp(x: f32, y_intercept: f32) -> f32 {
-    (x / y_intercept) - 1.
-}
-#[inline]
-fn ramp_then_const(x: f32, zero: f32, const_start: f32) -> f32 {
-    // value of const: 2. * const_start / (zero + const_start)
-    (-(x - zero - const_start).abs() + x - zero + const_start) / (zero + const_start)
 }
