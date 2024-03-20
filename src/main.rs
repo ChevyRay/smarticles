@@ -10,8 +10,8 @@ use eframe::epaint::Color32;
 use eframe::{App, Frame, NativeOptions};
 use egui::plot::{Line, Plot, PlotPoints};
 use egui::{
-    Align2, CentralPanel, ComboBox, Context, FontId, Pos2, ScrollArea, Sense, SidePanel, Slider,
-    Stroke, Vec2,
+    Align2, CentralPanel, ComboBox, Context, FontId, ScrollArea, Sense, SidePanel, Slider, Stroke,
+    Vec2,
 };
 use rand::distributions::Open01;
 use rand::rngs::SmallRng;
@@ -66,11 +66,11 @@ const RANDOM_MIN_PARTICLE_COUNT: usize = 200;
 /// being above this value.
 const RANDOM_MAX_PARTICLE_COUNT: usize = 1000;
 
-const DEFAULT_POWER: f32 = 0.;
-const MAX_POWER: f32 = 100.;
-const MIN_POWER: f32 = -MAX_POWER;
-/// Scales power.
-const POWER_FACTOR: f32 = 1. / 500.;
+const DEFAULT_FORCE: f32 = 0.;
+const MAX_FORCE: f32 = 100.;
+const MIN_FORCE: f32 = -MAX_FORCE;
+/// Scales force.
+const FORCE_FACTOR: f32 = 1. / 500.;
 
 const DEFAULT_RADIUS: f32 = 80.;
 const MIN_RADIUS: f32 = RAMP_START_RADIUS;
@@ -78,22 +78,22 @@ const MAX_RADIUS: f32 = 100.;
 
 /// Below this radius, particles repel each other (see [`get_dv`]).
 const RAMP_START_RADIUS: f32 = 30.;
-/// The power with which the particles repel each other when
+/// The force with which the particles repel each other when
 /// below [`MIN_RADIUS`]. It is scaled depending on the distance
 /// between particles (see [`get_dv`] second arm).
-/// The radius where the power ramp ends (see [`get_dv`] first arm).
+/// The radius where the force ramp ends (see [`get_dv`] first arm).
 const RAMP_END_RADIUS: f32 = 10.;
-/// "Close power", see graph below.
-const CLOSE_POWER: f32 = 20. * POWER_FACTOR;
+/// "Close force", see graph below.
+const CLOSE_FORCE: f32 = 20. * FORCE_FACTOR;
 
-// I made a graph of the power with respect to the radius
-// in order to explain the above constants (it might not help at all):
+// I made a graph of the force with respect to distance in
+// order to explain the above constants (it might not help at all):
 //
 //
-//                   power ^
+//                   force ^
 //                         |
 //                         |
-//  power of the particle  | . . . . . . . . . . . . . . . . . . . . ./-----------------------
+//  force of the particle  | . . . . . . . . . . . . . . . . . . . . ./-----------------------
 //  (changing)             |                                        /-.
 //                         |                                      /-  .
 //                         |                                    /-    .
@@ -107,14 +107,14 @@ const CLOSE_POWER: f32 = 20. * POWER_FACTOR;
 //                         |            ----/       |                 |
 //                         |       ----/            |                 |
 //                         |  ----/         RAMP_START_RADIUS     RAMP_START_RADIUS + RAMP_END_RADIUS
-//            CLOSE_POWER  |-/
+//            CLOSE_FORCE  |-/
 //                         |
 //                         |
 //                         |
 //                         |
 //
 
-const BORDER_POWER: f32 = 10. * POWER_FACTOR;
+const BORDER_FORCE: f32 = 10. * FORCE_FACTOR;
 
 const DEFAULT_DAMPING_FACTOR: f32 = 0.4;
 const POS_FACTOR: f32 = 40.;
@@ -177,7 +177,7 @@ struct Smarticles {
     /// `c` and the second is the particle index `p`. The `p`th
     /// particle of the `c`th class has index `(c, p)` in the matrix.
     particles: Array2D<Particle>,
-    /// Matrix containing power and radius for each particle class
+    /// Matrix containing force and radius for each particle class
     /// with respect to each other.
     param_matrix: Array2D<Param>,
 
@@ -186,6 +186,7 @@ struct Smarticles {
 
     selected_param: (usize, usize),
     selected_particle: (usize, usize),
+    follow_selected_particle: bool,
 
     history: VecDeque<String>,
     selected_history_entry: usize,
@@ -229,7 +230,7 @@ impl Smarticles {
             }),
             particles: Array2D::filled_with(Particle::default(), MAX_CLASSES, MAX_PARTICLE_COUNT),
             param_matrix: Array2D::filled_with(
-                Param::new(DEFAULT_POWER, DEFAULT_RADIUS),
+                Param::new(DEFAULT_FORCE, DEFAULT_RADIUS),
                 MAX_CLASSES,
                 MAX_CLASSES,
             ),
@@ -239,6 +240,7 @@ impl Smarticles {
 
             selected_param: (0, 0),
             selected_particle: (0, 0),
+            follow_selected_particle: false,
 
             history: VecDeque::new(),
             selected_history_entry: 0,
@@ -266,7 +268,7 @@ impl Smarticles {
 
         for i in 0..MAX_CLASSES {
             for j in 0..MAX_CLASSES {
-                self.param_matrix[(i, j)].power = DEFAULT_POWER;
+                self.param_matrix[(i, j)].force = DEFAULT_FORCE;
                 self.param_matrix[(i, j)].radius = DEFAULT_RADIUS;
             }
         }
@@ -301,36 +303,36 @@ impl Smarticles {
         for c1 in 0..self.class_count {
             for c2 in 0..self.class_count {
                 let param = &self.param_matrix[(c1, c2)];
-                let power = -param.power * POWER_FACTOR;
+                let force = -param.force * FORCE_FACTOR;
                 let radius = param.radius;
 
                 (0..self.classes[c1].particle_count)
                     .into_par_iter()
-                    .map(|p1| {
-                        let mut v = Vec2::ZERO;
+                    .filter_map(|p1| {
+                        let mut dv = Vec2::ZERO;
 
-                        let mut a = self.particles[(c1, p1)];
+                        let mut particle = self.particles[(c1, p1)].to_owned();
                         for p2 in 0..self.classes[c2].particle_count {
                             let b = &self.particles[(c2, p2)];
-                            v += get_dv(b.pos - a.pos, radius, power);
+                            dv += get_partial_vel(b.pos - particle.pos, radius, force);
                         }
 
-                        let d = a.pos;
+                        let d = particle.pos;
                         let r = d.length();
                         if r >= self.world_radius {
-                            v += -d.normalized() * BORDER_POWER * (r - self.world_radius);
+                            dv += -d.normalized() * BORDER_FORCE * (r - self.world_radius);
                         }
 
-                        a.vel = (a.vel + v) * DEFAULT_DAMPING_FACTOR;
-                        a.pos += a.vel * POS_FACTOR * dt;
+                        particle.vel = (particle.vel + dv) * DEFAULT_DAMPING_FACTOR;
+                        particle.pos += particle.vel * POS_FACTOR * dt;
 
-                        a
+                        Some(particle)
                     })
                     .collect::<Vec<Particle>>()
                     .iter()
                     .enumerate()
                     .for_each(|(p1, particle)| {
-                        self.particles[(c1, p1)] = *particle;
+                        self.particles[(c1, p1)] = particle.to_owned();
                     });
             }
         }
@@ -363,8 +365,8 @@ impl Smarticles {
                 RANDOM_MAX_PARTICLE_COUNT as f32,
             ) as usize;
             for j in 0..self.class_count {
-                let pow = rand(MIN_POWER, MAX_POWER);
-                self.param_matrix[(i, j)].power = pow.signum() * pow.abs().powf(1. / POW_F);
+                let pow = rand(MIN_FORCE, MAX_FORCE);
+                self.param_matrix[(i, j)].force = pow.signum() * pow.abs().powf(1. / POW_F);
                 self.param_matrix[(i, j)].radius = rand(MIN_RADIUS, MAX_RADIUS).powf(1. / RAD_F);
             }
         }
@@ -381,7 +383,7 @@ impl Smarticles {
             bytes.write_u16::<LE>(prop.particle_count as u16).unwrap();
         }
         self.param_matrix.elements_row_major_iter().for_each(|p| {
-            bytes.write_i8(p.power as i8).unwrap();
+            bytes.write_i8(p.force as i8).unwrap();
             bytes.write_i8(p.radius as i8).unwrap();
         });
 
@@ -403,7 +405,7 @@ impl Smarticles {
 
         for i in 0..MAX_CLASSES {
             for j in 0..MAX_CLASSES {
-                self.param_matrix[(i, j)].power = bytes.read_i8().unwrap_or(0) as f32;
+                self.param_matrix[(i, j)].force = bytes.read_i8().unwrap_or(0) as f32;
                 self.param_matrix[(i, j)].radius = bytes.read_i8().unwrap_or(0) as f32;
             }
         }
@@ -606,6 +608,18 @@ impl App for Smarticles {
                     );
                     ui.code(format!("{:?}", self.particles[self.selected_particle].vel));
                 });
+
+                ui.horizontal(|ui| {
+                    if self.follow_selected_particle {
+                        if ui.button("stop following selected particle").clicked() {
+                            self.follow_selected_particle = false;
+                        }
+                    } else {
+                        if ui.button("follow selected particle").clicked() {
+                            self.follow_selected_particle = true;
+                        }
+                    }
+                });
             });
 
             ui.collapsing(
@@ -616,10 +630,10 @@ impl App for Smarticles {
                             let x = i as f32 * 0.1;
                             [
                                 x as f64,
-                                get_dv(
+                                get_partial_vel(
                                     Vec2::new(x, 0.),
                                     self.param_matrix[self.selected_param].radius,
-                                    self.param_matrix[self.selected_param].power * POWER_FACTOR,
+                                    self.param_matrix[self.selected_param].force * FORCE_FACTOR,
                                 )
                                 .x as f64,
                             ]
@@ -670,7 +684,7 @@ impl App for Smarticles {
                             ui.vertical(|ui| {
                                 for j in 0..self.class_count {
                                     ui.horizontal(|ui| {
-                                        ui.label("power (");
+                                        ui.label("force (");
                                         ui.colored_label(
                                             self.classes[j].color,
                                             &self.classes[j].name,
@@ -678,8 +692,8 @@ impl App for Smarticles {
                                         ui.label(")");
                                         if ui
                                             .add(Slider::new(
-                                                &mut self.param_matrix[(i, j)].power,
-                                                MIN_POWER..=MAX_POWER,
+                                                &mut self.param_matrix[(i, j)].force,
+                                                MIN_FORCE..=MAX_FORCE,
                                             ))
                                             .changed()
                                         {
@@ -740,7 +754,7 @@ impl App for Smarticles {
                     if ctx.input().pointer.any_down() && resp.rect.contains(interact_pos) {
                         if !self.view.dragging {
                             self.view.dragging = true;
-                            self.view.drag_start_pos = interact_pos;
+                            self.view.drag_start_pos = interact_pos.to_vec2();
                             self.view.drag_start_view_pos = self.view.pos;
                         }
                     } else {
@@ -751,12 +765,19 @@ impl App for Smarticles {
                 if self.view.dragging {
                     let drag_delta =
                         ctx.input().pointer.interact_pos().unwrap() - self.view.drag_start_pos;
-                    self.view.pos = self.view.drag_start_view_pos + drag_delta / self.view.zoom;
+                    self.view.pos =
+                        self.view.drag_start_view_pos + drag_delta.to_vec2() / self.view.zoom;
+                }
+
+                if self.follow_selected_particle {
+                    self.view.pos +=
+                        self.view.prev_follow_pos - self.particles[self.selected_particle].pos;
+                    self.view.prev_follow_pos = self.particles[self.selected_particle].pos;
                 }
 
                 let min = resp.rect.min
                     + Vec2::new(resp.rect.width(), resp.rect.height()) / 2.
-                    + (-Vec2::new(self.world_radius, self.world_radius) + self.view.pos.to_vec2())
+                    + (-Vec2::new(self.world_radius, self.world_radius) + self.view.pos)
                         * self.view.zoom;
 
                 paint.circle_stroke(
@@ -797,13 +818,13 @@ impl App for Smarticles {
     }
 }
 
-fn get_dv(distance: Vec2, action_radius: f32, power: f32) -> Vec2 {
+fn get_partial_vel(distance: Vec2, action_radius: f32, force: f32) -> Vec2 {
     match distance.length() {
         r if r < action_radius && r > RAMP_START_RADIUS => {
-            distance.normalized() * power * ramp_then_const(r, RAMP_START_RADIUS, RAMP_END_RADIUS)
+            distance.normalized() * force * ramp_then_const(r, RAMP_START_RADIUS, RAMP_END_RADIUS)
         }
         r if r <= RAMP_START_RADIUS && r > 0. => {
-            distance.normalized() * CLOSE_POWER * simple_ramp(r, RAMP_START_RADIUS)
+            distance.normalized() * CLOSE_FORCE * simple_ramp(r, RAMP_START_RADIUS)
         }
         _ => Vec2::ZERO,
     }
@@ -835,35 +856,37 @@ struct ClassProps {
 
 #[derive(Debug, Clone)]
 struct Param {
-    power: f32,
+    force: f32,
     radius: f32,
 }
 
 impl Param {
-    pub fn new(power: f32, radius: f32) -> Self {
-        Self { power, radius }
+    pub fn new(force: f32, radius: f32) -> Self {
+        Self { force, radius }
     }
 }
 
 struct View {
     zoom: f32,
-    pos: Pos2,
+    pos: Vec2,
+    prev_follow_pos: Vec2,
     dragging: bool,
-    drag_start_pos: Pos2,
-    drag_start_view_pos: Pos2,
+    drag_start_pos: Vec2,
+    drag_start_view_pos: Vec2,
 }
 
 impl View {
     const DEFAULT: View = Self {
         zoom: DEFAULT_ZOOM,
-        pos: Pos2::ZERO,
+        pos: Vec2::ZERO,
+        prev_follow_pos: Vec2::ZERO,
         dragging: false,
-        drag_start_pos: Pos2::ZERO,
-        drag_start_view_pos: Pos2::ZERO,
+        drag_start_pos: Vec2::ZERO,
+        drag_start_view_pos: Vec2::ZERO,
     };
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Particle {
     pos: Vec2,
     vel: Vec2,
