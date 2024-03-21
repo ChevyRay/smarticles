@@ -78,4 +78,4 @@
   - `valentin_fleurit`: my name
   - `unterse_trench_assures`
   - `ethrog_tactus_stolons`
-  - `atavism_priests_physique`
+  - `atavism_priests_physique`: this one is truly beautiful: many classes spinning together (actually 7 of 8 classes).
