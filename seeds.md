@@ -79,3 +79,5 @@
   - `unterse_trench_assures`
   - `ethrog_tactus_stolons`
   - `atavism_priests_physique`: this one is truly beautiful: many classes spinning together (actually 7 of 8 classes).
+  - `emer_broil_choicest`
+  - `hyaloid_claviole_hoop`
