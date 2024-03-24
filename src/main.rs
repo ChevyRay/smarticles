@@ -1,453 +1,189 @@
-use byteorder::{ReadBytesExt, WriteBytesExt, LE};
-use eframe::epaint::Color32;
-use eframe::{App, Frame, NativeOptions};
-use egui::{CentralPanel, Context, Rgba, Sense, SidePanel, Slider, Vec2};
-use rand::distributions::OpenClosed01;
-use rand::rngs::SmallRng;
-use rand::{Rng, SeedableRng};
-use rayon::prelude::*;
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::time::{Duration, Instant};
+use std::sync::mpsc::channel;
+use std::thread;
+use std::time::Duration;
 
-const INIT_SIZE: f32 = 800.0;
-const MIN_COUNT: usize = 0;
-const MAX_COUNT: usize = 1000;
-const MIN_POWER: f32 = -100.0;
-const MAX_POWER: f32 = 100.0;
-const MIN_RADIUS: f32 = 0.0;
-const MAX_RADIUS: f32 = 500.0;
+use array2d::Array2D;
+use eframe::epaint::Color32;
+use eframe::NativeOptions;
+use egui::Vec2;
+use simulation::SimulationState;
+use ui::Smarticles;
+
+use crate::simulation::Simulation;
+
+mod simulation;
+mod ui;
+
+// IDEA Add recordings ? By exporting positions of all the
+// particles each frame ? That would make around 8000 postions
+// every 1/60 second that is to say 60*8000=480,000 positions
+// per second, let's assume a position is 8 bytes (from Vec2),
+// then one second of simulation is 8*480,000=3,840,000 bytes
+// this is around 4MB. 1min of simulation is 60*4=240MB.
+// This seems possible, although not for long recordings.
+// Saving the exact starting position might also work although
+// if the simulation runs for too long there might be differences
+// between computers.
+
+/// Min number of particle classes in the simulation.
+const MIN_CLASSES: usize = 3;
+/// Max number of particle classes in the simulation.
+const MAX_CLASSES: usize = 8;
+
+/// Default world width the simulation.
+const DEFAULT_WORLD_RADIUS: f32 = 900.;
+/// Min world width the simulation.
+const MIN_WORLD_RADIUS: f32 = 200.;
+/// Max world width the simulation.
+const MAX_WORLD_RADIUS: f32 = 1200.;
+
+/// Min particle count.
+const MIN_PARTICLE_COUNT: usize = 0;
+/// Maximal particle count per class.
+const MAX_PARTICLE_COUNT: usize = 1200;
+/// When randomizing particle counts, this is the lowest
+/// possible value, this prevent random particle counts from
+/// being under this value.
+const RANDOM_MIN_PARTICLE_COUNT: usize = 200;
+/// When randomizing particle counts, this is the highest
+/// possible value, this prevent random particle counts from
+/// being above this value.
+const RANDOM_MAX_PARTICLE_COUNT: usize = 1000;
+
+const DEFAULT_FORCE: f32 = 0.;
+const MAX_FORCE: f32 = 100.;
+const MIN_FORCE: f32 = -MAX_FORCE;
+/// Scales force.
+const FORCE_FACTOR: f32 = 0.0025;
+
+const DEFAULT_RADIUS: f32 = 80.;
+const MIN_RADIUS: f32 = 30.;
+const MAX_RADIUS: f32 = 100.;
 
 fn main() {
-    let mut options = NativeOptions::default();
-    options.initial_window_size = Some(Vec2::new(1600.0, 900.0));
-    //options.fullscreen = true;
+    let options = NativeOptions {
+        // initial_window_size: Some(Vec2::new(1600., 900.)),
+        fullscreen: true,
+        ..Default::default()
+    };
+
+    env_logger::init();
+
+    let (ui_send, ui_rcv) = channel::<UiEvent>();
+    let (sim_send, sim_rcv) = channel::<SimResults>();
+
     eframe::run_native(
         "Smarticles",
         options,
-        Box::new(|_cc| {
+        Box::new(|cc| {
+            let frame = cc.egui_ctx.clone();
+
+            let simulation_handle = thread::spawn(move || {
+                let mut simulation = Simulation::new(sim_send, ui_rcv);
+                thread::sleep(Duration::from_millis(500));
+
+                loop {
+                    if !simulation.update() {
+                        break;
+                    };
+                    frame.request_repaint();
+                }
+            });
+
             Box::new(Smarticles::new(
-                INIT_SIZE,
-                INIT_SIZE,
                 [
-                    ("α", Rgba::from_rgb(1.0, 0.0, 0.0)),
-                    ("β", Rgba::from_rgb(0.0, 1.0, 0.0)),
-                    ("γ", Rgba::from_rgb(1.0, 1.0, 1.0)),
-                    ("δ", Rgba::from_rgb(0.0, 0.0, 1.0)),
+                    ("α", Color32::from_rgb(247, 0, 243)),
+                    ("β", Color32::from_rgb(166, 0, 255)),
+                    ("γ", Color32::from_rgb(60, 80, 255)),
+                    ("δ", Color32::from_rgb(0, 247, 255)),
+                    ("ε", Color32::from_rgb(68, 255, 0)),
+                    ("ζ", Color32::from_rgb(225, 255, 0)),
+                    ("η", Color32::from_rgb(255, 140, 0)),
+                    ("θ", Color32::from_rgb(255, 0, 0)),
                 ],
+                ui_send,
+                sim_rcv,
+                Some(simulation_handle),
             ))
         }),
     );
+
+    // ("α", Color32::from_rgb(251, 70, 76)),
+    // ("β", Color32::from_rgb(233, 151, 63)),
+    // ("γ", Color32::from_rgb(224, 222, 113)),
+    // ("δ", Color32::from_rgb(68, 207, 110)),
+    // ("ε", Color32::from_rgb(83, 223, 221)),
+    // ("ζ", Color32::from_rgb(2, 122, 255)),
+    // ("η", Color32::from_rgb(168, 130, 255)),
+    // ("θ", Color32::from_rgb(250, 153, 205)),
+
+    // ("α", Color32::from_rgb(251, 123, 119)),
+    // ("β", Color32::from_rgb(253, 193, 112)),
+    // ("γ", Color32::from_rgb(243, 248, 127)),
+    // ("δ", Color32::from_rgb(152, 247, 134)),
+    // ("ε", Color32::from_rgb(105, 235, 252)),
+    // ("ζ", Color32::from_rgb(109, 158, 252)),
+    // ("η", Color32::from_rgb(147, 125, 248)),
+    // ("θ", Color32::from_rgb(247, 142, 240)),
 }
 
-struct Smarticles<const N: usize> {
-    world_w: f32,
-    world_h: f32,
-    params: [Params<N>; N],
-    dots: [Vec<Dot>; N],
-    play: bool,
-    prev_time: Instant,
-    seed: String,
-    words: Vec<String>,
+#[derive(Debug)]
+enum UiEvent {
+    Play,
+    Pause,
+    Reset,
+    Spawn,
+    Quit,
+
+    ParamsUpdate(Array2D<Param>),
+    ClassCountUpdate(usize),
+    ParticleCountsUpdate([usize; MAX_CLASSES]),
+    WorldRadiusUpdate(f32),
 }
 
-struct Params<const N: usize> {
-    name: String,
-    heading: String,
-    color: Rgba,
-    count: usize,
-    power: [f32; N],
-    radius: [f32; N],
-}
+#[derive(Debug)]
+struct SimResults(Option<Duration>, Array2D<Vec2>);
 
-#[derive(Clone)]
-struct Dot {
-    pos: Vec2,
-    vel: Vec2,
-}
-
-impl<const N: usize> Smarticles<N> {
-    fn new<S>(world_w: f32, world_h: f32, colors: [(S, Rgba); N]) -> Self
-    where
-        S: ToString,
-    {
-        let words = include_str!("words.txt");
-        let words = words
-            .par_lines()
-            .filter_map(|w| {
-                if w.len() > 8 {
-                    return None;
-                }
-                for chr in w.chars() {
-                    if !chr.is_ascii_alphabetic() || chr.is_ascii_uppercase() {
-                        return None;
-                    }
-                }
-                Some(w.to_string())
-            })
-            .collect();
-
-        Self {
-            world_w,
-            world_h,
-            params: colors.map(|(name, color)| Params {
-                name: name.to_string(),
-                heading: "Type ".to_string() + &name.to_string(),
-                color: color.into(),
-                count: 0,
-                power: [0.0; N],
-                radius: [MIN_RADIUS; N],
-            }),
-            dots: std::array::from_fn(|_| Vec::new()),
-            play: false,
-            prev_time: Instant::now(),
-            seed: String::new(),
-            words,
-        }
-    }
-
-    fn play(&mut self) {
-        self.play = true;
-    }
-
-    fn stop(&mut self) {
-        self.play = false;
-    }
-
-    fn restart(&mut self) {
-        self.world_w = INIT_SIZE;
-        self.world_h = INIT_SIZE;
-        for p in &mut self.params {
-            p.count = 0;
-            p.radius.iter_mut().for_each(|r| *r = 0.0);
-            p.power.iter_mut().for_each(|p| *p = 0.0);
-        }
-    }
-
-    fn clear(&mut self) {
-        for i in 0..N {
-            self.dots[i].clear();
-        }
-    }
-
-    fn spawn(&mut self) {
-        self.clear();
-
-        let mut rand = SmallRng::from_entropy();
-
-        for i in 0..N {
-            self.dots[i].clear();
-            for _ in 0..self.params[i].count {
-                self.dots[i].push(Dot {
-                    pos: Vec2::new(
-                        self.world_w * rand.sample::<f32, _>(OpenClosed01),
-                        self.world_h * rand.sample::<f32, _>(OpenClosed01),
-                    ),
-                    vel: Vec2::ZERO,
-                });
-            }
-        }
-    }
-
-    fn apply_seed(&mut self) {
-        self.clear();
-
-        let mut rand = if self.seed.is_empty() {
-            SmallRng::from_entropy()
-        } else {
-            if self.seed.starts_with('@') {
-                if let Ok(bytes) = base64::decode(&self.seed[1..]) {
-                    self.import(&bytes);
-                    return;
-                }
-            }
-            let mut hasher = DefaultHasher::new();
-            self.seed.hash(&mut hasher);
-            SmallRng::seed_from_u64(hasher.finish())
-        };
-        let mut rand = |min: f32, max: f32| min + (max - min) * rand.sample::<f32, _>(OpenClosed01);
-
-        const POW_F: f32 = 1.25;
-        const RAD_F: f32 = 1.1;
-
-        for i in 0..N {
-            self.params[i].count = rand(MIN_COUNT as f32, MAX_COUNT as f32) as usize;
-            for j in 0..N {
-                let pow = rand(MIN_POWER, MAX_POWER);
-                self.params[i].power[j] = if pow >= 0.0 {
-                    pow.powf(1.0 / POW_F)
-                } else {
-                    -pow.abs().powf(1.0 / POW_F)
-                };
-                //self.params[i].power[j] = rand(MIN_POWER, MAX_POWER);
-                self.params[i].radius[j] = rand(MIN_RADIUS, MAX_RADIUS).powf(1.0 / RAD_F);
-            }
-        }
-    }
-
-    fn simulate(&mut self) {
-        let mut dots: [Vec<Dot>; N] = std::array::from_fn(|i| self.dots[i].clone());
-        dots.par_iter_mut().enumerate().for_each(|(i, dots_i)| {
-            for j in 0..N {
-                interaction(
-                    dots_i,
-                    &self.dots[j],
-                    self.params[i].power[j],
-                    self.params[i].radius[j],
-                    self.world_w,
-                    self.world_h,
-                );
-            }
-        });
-        self.dots = dots;
-    }
-
-    fn export(&self) -> String {
-        let mut bytes: Vec<u8> = Vec::new();
-        bytes.write_u16::<LE>(self.world_w as u16).unwrap();
-        bytes.write_u16::<LE>(self.world_h as u16).unwrap();
-        for p in &self.params {
-            bytes.write_u8((p.color.r() * 255.0) as u8).unwrap();
-            bytes.write_u8((p.color.g() * 255.0) as u8).unwrap();
-            bytes.write_u8((p.color.b() * 255.0) as u8).unwrap();
-            bytes.write_u16::<LE>(p.count as u16).unwrap();
-            for &p in &p.power {
-                bytes.write_i8(p as i8).unwrap();
-            }
-            for &r in &p.radius {
-                bytes.write_u16::<LE>(r as u16).unwrap();
-            }
-        }
-        format!("@{}", base64::encode(bytes))
-    }
-
-    fn import(&mut self, mut bytes: &[u8]) {
-        self.world_w = bytes.read_u16::<LE>().unwrap_or(1000) as f32;
-        self.world_h = bytes.read_u16::<LE>().unwrap_or(1000) as f32;
-        for p in &mut self.params {
-            let r = (bytes.read_u8().unwrap_or((p.color.r() * 255.0) as u8) as f32) / 255.0;
-            let g = (bytes.read_u8().unwrap_or((p.color.g() * 255.0) as u8) as f32) / 255.0;
-            let b = (bytes.read_u8().unwrap_or((p.color.b() * 255.0) as u8) as f32) / 255.0;
-            p.color = Rgba::from_rgb(r, g, b);
-            p.count = bytes.read_u16::<LE>().unwrap_or(0) as usize;
-            for p in &mut p.power {
-                *p = bytes.read_i8().unwrap_or(0) as f32;
-            }
-            for r in &mut p.radius {
-                *r = bytes.read_u16::<LE>().unwrap_or(0) as f32;
-            }
-        }
-    }
-}
-
-fn interaction(
-    group1: &mut [Dot],
-    group2: &[Dot],
-    g: f32,
+#[derive(Debug, Clone)]
+struct Param {
+    force: f32,
     radius: f32,
-    world_w: f32,
-    world_h: f32,
-) {
-    let g = g / -100.0;
-    group1.par_iter_mut().for_each(|p1| {
-        let mut f = Vec2::ZERO;
-        for p2 in group2 {
-            let d = p1.pos - p2.pos;
-            let r = d.length();
-            if r < radius && r > 0.0 {
-                f += d / r;
-            }
-        }
-
-        p1.vel = (p1.vel + f * g) * 0.5;
-        p1.pos += p1.vel;
-
-        if (p1.pos.x < 10.0 && p1.vel.x < 0.0) || (p1.pos.x > world_w - 10.0 && p1.vel.x > 0.0) {
-            p1.vel.x *= -1.0;
-        }
-        if (p1.pos.y < 10.0 && p1.vel.y < 0.0) || (p1.pos.y > world_h - 10.0 && p1.vel.y > 0.0) {
-            p1.vel.y *= -1.0;
-        }
-
-        // alternative: wrap
-        /*if p1.pos.x < 0.0 {
-            p1.pos.x += world_w;
-        } else if p1.pos.x >= world_w {
-            p1.pos.x -= world_w;
-        }
-        if p1.pos.y < 0.0 {
-            p1.pos.y += world_h;
-        } else if p1.pos.y >= world_h {
-            p1.pos.y -= world_h;
-        }*/
-    });
+}
+impl Param {
+    pub fn new(force: f32, radius: f32) -> Self {
+        Self { force, radius }
+    }
 }
 
-impl<const N: usize> App for Smarticles<N> {
-    fn update(&mut self, ctx: &Context, frame: &mut Frame) {
-        if self.play {
-            let time = Instant::now();
-            let delta = time - self.prev_time;
-            if delta > Duration::from_secs_f32(1.0 / 60.0) {
-                self.prev_time = time;
-                self.simulate();
-            }
-            ctx.request_repaint();
+struct SharedState {
+    simulation_state: SimulationState,
+    world_radius: f32,
+    class_count: usize,
+    particle_counts: [usize; MAX_CLASSES],
+    /// Matrix containing force and radius for each particle class
+    /// with respect to each other.
+    param_matrix: Array2D<Param>,
+}
+
+impl SharedState {
+    fn new() -> Self {
+        Self {
+            simulation_state: SimulationState::Stopped,
+            world_radius: DEFAULT_WORLD_RADIUS,
+            class_count: MAX_CLASSES,
+            particle_counts: [0; MAX_CLASSES],
+            param_matrix: Array2D::filled_with(
+                Param::new(DEFAULT_FORCE, DEFAULT_RADIUS),
+                MAX_CLASSES,
+                MAX_CLASSES,
+            ),
         }
-
-        SidePanel::left("settings").show(&ctx, |ui| {
-            ui.heading("Settings");
-            ui.separator();
-            ui.horizontal(|ui| {
-                if ui.button("Respawn").clicked() {
-                    self.spawn();
-                }
-                if self.play {
-                    if ui.button("Pause").clicked() {
-                        self.stop();
-                    }
-                } else {
-                    if ui.button("Play").clicked() {
-                        self.play();
-                    }
-                }
-
-                if ui.button("Randomize").clicked() {
-                    let w1 = rand::random::<usize>() % self.words.len();
-                    let w2 = rand::random::<usize>() % self.words.len();
-                    self.seed = format!("{}_{}", self.words[w1], self.words[w2]);
-
-                    self.apply_seed();
-                    self.spawn();
-                }
-
-                if ui.button("Reset").clicked() {
-                    self.restart();
-                }
-
-                if ui.button("Quit").clicked() {
-                    frame.close();
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label("Seed:");
-                if ui.text_edit_singleline(&mut self.seed).changed() {
-                    self.apply_seed();
-                    self.spawn();
-                    self.stop();
-                }
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("World Width:");
-                if ui
-                    .add(Slider::new(&mut self.world_w, 100.0..=1000.0))
-                    .changed()
-                {
-                    self.seed = self.export();
-                    self.spawn();
-                }
-            });
-            ui.horizontal(|ui| {
-                ui.label("World Height:");
-                if ui
-                    .add(Slider::new(&mut self.world_h, 100.0..=1000.0))
-                    .changed()
-                {
-                    self.seed = self.export();
-                    self.spawn();
-                }
-            });
-
-            for i in 0..N {
-                ui.add_space(10.0);
-                ui.colored_label(self.params[i].color, &self.params[i].heading);
-                ui.separator();
-
-                ui.horizontal(|ui| {
-                    ui.label("Color:");
-                    let mut rgb = [
-                        self.params[i].color.r(),
-                        self.params[i].color.g(),
-                        self.params[i].color.b(),
-                    ];
-                    if ui.color_edit_button_rgb(&mut rgb).changed() {
-                        self.params[i].color = Rgba::from_rgb(rgb[0], rgb[1], rgb[2]);
-                        self.seed = self.export();
-                    }
-                });
-
-                ui.horizontal(|ui| {
-                    ui.label("Count:");
-                    if ui
-                        .add(Slider::new(
-                            &mut self.params[i].count,
-                            MIN_COUNT..=MAX_COUNT,
-                        ))
-                        .changed()
-                    {
-                        self.seed = self.export();
-                    }
-                });
-
-                ui.horizontal(|ui| {
-                    ui.vertical(|ui| {
-                        for j in 0..N {
-                            ui.horizontal(|ui| {
-                                ui.label("Power (");
-                                ui.colored_label(self.params[j].color, &self.params[j].name);
-                                ui.label(")");
-                                if ui
-                                    .add(Slider::new(
-                                        &mut self.params[i].power[j],
-                                        MIN_POWER..=MAX_POWER,
-                                    ))
-                                    .changed()
-                                {
-                                    self.seed = self.export();
-                                }
-                            });
-                        }
-                    });
-                    ui.vertical(|ui| {
-                        for j in 0..N {
-                            ui.horizontal(|ui| {
-                                ui.label("Radius (");
-                                ui.colored_label(self.params[j].color, &self.params[j].name);
-                                ui.label(")");
-                                if ui
-                                    .add(Slider::new(
-                                        &mut self.params[i].radius[j],
-                                        MIN_RADIUS..=MAX_RADIUS,
-                                    ))
-                                    .changed()
-                                {
-                                    self.seed = self.export();
-                                }
-                            });
-                        }
-                    });
-                });
-            }
-        });
-
-        CentralPanel::default().show(&ctx, |ui| {
-            let (resp, paint) =
-                ui.allocate_painter(ui.available_size_before_wrap(), Sense::hover());
-
-            let min = resp.rect.min
-                + Vec2::new(
-                    (resp.rect.width() - self.world_w) / 2.0,
-                    (resp.rect.height() - self.world_h) / 2.0,
-                );
-
-            for i in 0..N {
-                let p = &self.params[i];
-                let col: Color32 = p.color.into();
-                for dot in &self.dots[i] {
-                    paint.circle_filled(min + dot.pos, 2.0, col);
-                }
-            }
-        });
     }
+}
+
+trait UpdateSharedState {
+    fn play(&mut self);
+    fn pause(&mut self);
+    fn reset(&mut self);
+    fn spawn(&mut self);
 }

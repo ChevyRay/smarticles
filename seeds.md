@@ -1,0 +1,89 @@
+# Interesting seeds
+
+> Note that first seeds were tested with old settings so they might not behave as described
+
+- Added before `0.1.1`
+  - `helide_burdener`: complex cells.
+  - `polyp_naif`: moving cells chasing each other.
+  - `friborg_apositia`: wtf.
+  - `cessavit_pinkeys`: several different types of cells, all interesting.
+  - `amuletic_nutlike`: blue cells need some yellow particles to be stable.
+  - `hamlets_lingers`: big red cell with interesting shape. It can not merge (unstable) with the other one when there is two of them remaining.
+  - `vaginae_invecked`: red circle attacks blue particles. orange+yellow chases red. orange+purple makes stable cell.
+  - `nominy_tamboo`: light blue, purple and pink form cells with an interesting organisation.
+  - `adored_duvetine`: different structures, very lively.
+  - `hepcat_radius`
+  - `lifeway_unambush`
+  - `bestreak_incised`
+  - `gau_reformat`
+  - `coombes_embody`
+  - `aristae_gloaming`
+  - `pulvinar_paprica`
+  - `chaining_smartass`: unusual structures forming. example: two circles, red and yellow, kind of rotating around each other in opposite ways, tried to reproduce but it seems to require a certain number of each particle.
+  - `cinders_salite`
+- Added after `0.1.1`
+  - `reshoe_lusory`
+  - `scrank_chry`
+  - `shmo_obtainal`
+  - `shoes_viagram`
+  - `mischose_lockrum`
+  - `risuses_picucule`: kind of organism that seeks yellow particle balls.
+  - `sanicles_politei`
+  - `bulbul_munchet`
+  - `tideling_graved`
+  - `ductless_marques`
+  - `underarm_luminary_paplike`
+  - `carved_calamar_bandage`
+  - `muscular_template_wiglet`
+  - `saponify_sproat_gong`
+  - `fatted_jaman_handbags`
+  - `corcle_crinid_crepitus`
+  - `virtuosa_ensconce_upheaps`
+  - `reinters_gymnic_eructing`
+- Added after `0.1.2`
+  - `disbowel_decor_bingo`
+  - `zeks_oriels_yucch`: geometrical pattern ?
+  - `outlaugh_chubasco_joulean`: big moving organism
+  - `chlorize_adaxial_gaiting`
+  - `grape_soushy_korakan`
+  - `scalado_couter_poldavy`
+  - `wagbeard_chacoli_overhusk`
+  - `consulta_segueing_errorist`
+  - `gata_perfay_acounter`: beautiful.
+  - `lactify_fiberous_otiant`
+  - `mown_zibeth_killadar`
+  - `caulk_mavin_smews`
+  - `gibbered_terrains_masoola`
+  - `pneumas_razzle_tenet`
+  - `apass_boogy_paesan`
+  - `fistfuls_pinnaces_folkland`
+  - `sillar_cowbanes_murexes`
+  - `scalma_cobless_conicein`
+  - `petrify_assembl_amphide`
+  - `aphesis_muskegs_intake`
+  - `salicin_vipers_blurb`
+  - `laptops_concuss_pates`
+  - `palpifer_evermore_morphgan`
+  - `kakas_afteroar_bhuts`
+  - `misogyne_sengi_depthen`
+- Added after `0.1.3`
+  - `anthrone_garle_grunt`: asymetrical moving cell
+  - `vocables_tenorist_hazardry`
+  - `hydrazin_ycleping_flunkey`
+  - `taliage_slag_amphorae`
+  - `hapu_rooibok_vitamer`
+  - `carabeen_saucery_package`
+  - `bondsmen_impi_erliche`: speeeeed (kind of)
+  - `breaming_uncivic_unfellow`
+  - `valentin_fleurit`: my name
+  - `unterse_trench_assures`
+  - `ethrog_tactus_stolons`: this one is truly beautiful: many classes spinning together (actually 5-6 of 8 classes).
+  - `atavism_priests_physique`
+  - `emer_broil_choicest`
+  - `hyaloid_claviole_hoop`
+  - `earnests_rays_sossle`
+  - `rheadine_rikshas_handguns`: first time I encounter this: a cell that mirrors its geometry when bouncing on the border and goes in the opposite direction
+  - `widowing_excides_sortwith`
+  - `firiness_exundate_feering`
+  - `propanol_katana_antwise`
+  - `timar_cammocky_enforth`: stable 6 class cell that moves fast and is really stable
