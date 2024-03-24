@@ -77,7 +77,9 @@
   - `breaming_uncivic_unfellow`
   - `valentin_fleurit`: my name
   - `unterse_trench_assures`
-  - `ethrog_tactus_stolons`
-  - `atavism_priests_physique`: this one is truly beautiful: many classes spinning together (actually 7 of 8 classes).
+  - `ethrog_tactus_stolons`: this one is truly beautiful: many classes spinning together (actually 7 of 8 classes).
+  - `atavism_priests_physique`
   - `emer_broil_choicest`
   - `hyaloid_claviole_hoop`
+  - `earnests_rays_sossle`
+  - `rheadine_rikshas_handguns`: first time I encounter this: a cell that mirrors its geometry when bouncing on the border and goes in the opposite direction

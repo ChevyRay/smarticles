@@ -54,7 +54,7 @@ const DEFAULT_FORCE: f32 = 0.;
 const MAX_FORCE: f32 = 100.;
 const MIN_FORCE: f32 = -MAX_FORCE;
 /// Scales force.
-const FORCE_FACTOR: f32 = 1. / 500.;
+const FORCE_FACTOR: f32 = 0.0025;
 
 const DEFAULT_RADIUS: f32 = 80.;
 const MIN_RADIUS: f32 = 30.;
@@ -66,6 +66,47 @@ fn main() {
         fullscreen: true,
         ..Default::default()
     };
+
+    env_logger::init();
+
+    let (ui_send, ui_rcv) = channel::<UiEvent>();
+    let (sim_send, sim_rcv) = channel::<SimResults>();
+
+    eframe::run_native(
+        "Smarticles",
+        options,
+        Box::new(|cc| {
+            let frame = cc.egui_ctx.clone();
+
+            let simulation_handle = thread::spawn(move || {
+                let mut simulation = Simulation::new(sim_send, ui_rcv);
+                thread::sleep(Duration::from_millis(500));
+
+                loop {
+                    if !simulation.update() {
+                        break;
+                    };
+                    frame.request_repaint();
+                }
+            });
+
+            Box::new(Smarticles::new(
+                [
+                    ("α", Color32::from_rgb(247, 0, 243)),
+                    ("β", Color32::from_rgb(166, 0, 255)),
+                    ("γ", Color32::from_rgb(60, 80, 255)),
+                    ("δ", Color32::from_rgb(0, 247, 255)),
+                    ("ε", Color32::from_rgb(68, 255, 0)),
+                    ("ζ", Color32::from_rgb(225, 255, 0)),
+                    ("η", Color32::from_rgb(255, 140, 0)),
+                    ("θ", Color32::from_rgb(255, 0, 0)),
+                ],
+                ui_send,
+                sim_rcv,
+                Some(simulation_handle),
+            ))
+        }),
+    );
 
     // ("α", Color32::from_rgb(251, 70, 76)),
     // ("β", Color32::from_rgb(233, 151, 63)),
@@ -84,44 +125,6 @@ fn main() {
     // ("ζ", Color32::from_rgb(109, 158, 252)),
     // ("η", Color32::from_rgb(147, 125, 248)),
     // ("θ", Color32::from_rgb(247, 142, 240)),
-
-    let (ui_send, ui_rcv) = channel::<UiEvent>();
-    let (sim_send, sim_rcv) = channel::<SimResults>();
-
-    let smarticles = Smarticles::new(
-        [
-            ("α", Color32::from_rgb(247, 0, 243)),
-            ("β", Color32::from_rgb(166, 0, 255)),
-            ("γ", Color32::from_rgb(60, 80, 255)),
-            ("δ", Color32::from_rgb(0, 247, 255)),
-            ("ε", Color32::from_rgb(68, 255, 0)),
-            ("ζ", Color32::from_rgb(225, 255, 0)),
-            ("η", Color32::from_rgb(255, 140, 0)),
-            ("θ", Color32::from_rgb(255, 0, 0)),
-        ],
-        ui_send,
-        sim_rcv,
-    );
-
-    eframe::run_native(
-        "Smarticles",
-        options,
-        Box::new(|cc| {
-            let frame = cc.egui_ctx.clone();
-
-            thread::spawn(move || {
-                let mut simulation = Simulation::new(sim_send, ui_rcv);
-                thread::sleep(Duration::from_millis(500));
-
-                loop {
-                    simulation.update();
-                    frame.request_repaint();
-                }
-            });
-
-            Box::new(smarticles)
-        }),
-    );
 }
 
 #[derive(Debug)]
@@ -130,6 +133,8 @@ enum UiEvent {
     Pause,
     Reset,
     Spawn,
+    Quit,
+
     ParamsUpdate(Array2D<Param>),
     ClassCountUpdate(usize),
     ParticleCountsUpdate([usize; MAX_CLASSES]),
@@ -137,7 +142,7 @@ enum UiEvent {
 }
 
 #[derive(Debug)]
-struct SimResults(Duration, Array2D<Vec2>);
+struct SimResults(Option<Duration>, Array2D<Vec2>);
 
 #[derive(Debug, Clone)]
 struct Param {

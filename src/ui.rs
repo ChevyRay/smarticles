@@ -2,6 +2,7 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::VecDeque;
 use std::hash::{Hash, Hasher};
 use std::sync::mpsc::{Receiver, Sender};
+use std::thread::JoinHandle;
 
 use array2d::Array2D;
 use byteorder::{ReadBytesExt, WriteBytesExt, LE};
@@ -17,7 +18,7 @@ use rand::rngs::SmallRng;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
 
-use crate::simulation::{get_partial_vel, SimulationState};
+use crate::simulation::{get_partial_velocity, SimulationState};
 use crate::{
     SharedState, SimResults, UiEvent, UpdateSharedState, DEFAULT_WORLD_RADIUS, FORCE_FACTOR,
     MAX_CLASSES, MAX_FORCE, MAX_PARTICLE_COUNT, MAX_RADIUS, MAX_WORLD_RADIUS, MIN_CLASSES,
@@ -29,7 +30,7 @@ use crate::{
 /// pixels).
 const PARTICLE_DIAMETER: f32 = 1.;
 
-const DEFAULT_ZOOM: f32 = 1.;
+const DEFAULT_ZOOM: f32 = 1.2;
 const MIN_ZOOM: f32 = 0.5;
 const MAX_ZOOM: f32 = 10.;
 const ZOOM_FACTOR: f32 = 0.02;
@@ -86,6 +87,8 @@ pub struct Smarticles {
 
     ui_send: Sender<UiEvent>,
     sim_rcv: Receiver<SimResults>,
+
+    simulation_handle: Option<JoinHandle<()>>,
 }
 
 impl Smarticles {
@@ -93,6 +96,7 @@ impl Smarticles {
         classes: [(S, Color32); MAX_CLASSES],
         ui_send: Sender<UiEvent>,
         sim_rcv: Receiver<SimResults>,
+        simulation_handle: Option<JoinHandle<()>>,
     ) -> Self
     where
         S: ToString,
@@ -141,6 +145,8 @@ impl Smarticles {
 
             ui_send,
             sim_rcv,
+
+            simulation_handle,
         }
     }
 
@@ -275,7 +281,9 @@ impl UpdateSharedState for Smarticles {
 impl App for Smarticles {
     fn update(&mut self, ctx: &Context, frame: &mut Frame) {
         if let Some(SimResults(elapsed, positions)) = self.sim_rcv.try_iter().last() {
-            self.calculation_time = elapsed.as_millis();
+            if let Some(elapsed) = elapsed {
+                self.calculation_time = elapsed.as_millis();
+            }
             self.particle_positions = positions;
         }
 
@@ -340,6 +348,10 @@ impl App for Smarticles {
                 }
 
                 if ui.button("quit").on_hover_text("exit smarticles").clicked() {
+                    self.ui_send.send(UiEvent::Quit).unwrap();
+                    if let Some(handle) = self.simulation_handle.take() {
+                        handle.join().unwrap();
+                    }
                     frame.close();
                 }
             });
@@ -477,7 +489,7 @@ impl App for Smarticles {
                             let x = i as f32 * 0.1;
                             [
                                 x as f64,
-                                get_partial_vel(
+                                get_partial_velocity(
                                     Vec2::new(x, 0.),
                                     self.shared.param_matrix[self.selected_param].radius,
                                     self.shared.param_matrix[self.selected_param].force
