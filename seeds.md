@@ -83,3 +83,7 @@
   - `hyaloid_claviole_hoop`
   - `earnests_rays_sossle`
   - `rheadine_rikshas_handguns`: first time I encounter this: a cell that mirrors its geometry when bouncing on the border and goes in the opposite direction
+  - `widowing_excides_sortwith`
+  - `firiness_exundate_feering`
+  - `propanol_katana_antwise`
+  - `timar_cammocky_enforth`: stable 6 class cell that moves fast and is really stable
